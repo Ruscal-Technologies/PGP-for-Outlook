@@ -1,0 +1,493 @@
+/* ============================================================
+   pgp-addon.css  —  Shared styles for the PGP Outlook add-in
+   Uses Fluent UI (Fabric) CSS as the base; this file adds
+   add-in-specific components on top.
+   ============================================================ */
+
+/* ── Reset / base ─────────────────────────────────────────── */
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  color: #323130;
+  background: #ffffff;
+}
+
+/* ── Layout ───────────────────────────────────────────────── */
+.pgp-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.pgp-section {
+  border: 1px solid #edebe9;
+  border-radius: 4px;
+  padding: 12px 14px;
+  background: #faf9f8;
+}
+
+.pgp-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #605e5c;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 10px 0;
+}
+
+/* ── Status badges ────────────────────────────────────────── */
+.pgp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.pgp-badge--success {
+  background: #dff6dd;
+  color: #107c10;
+}
+
+.pgp-badge--error {
+  background: #fde7e9;
+  color: #a80000;
+}
+
+.pgp-badge--warning {
+  background: #fff4ce;
+  color: #7a6006;
+}
+
+.pgp-badge--info {
+  background: #deecf9;
+  color: #004578;
+}
+
+.pgp-badge--neutral {
+  background: #edebe9;
+  color: #605e5c;
+}
+
+/* ── Fingerprint display ──────────────────────────────────── */
+.pgp-fingerprint {
+  font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #605e5c;
+  background: #f3f2f1;
+  padding: 4px 8px;
+  border-radius: 3px;
+  word-break: break-all;
+  display: block;
+  margin-top: 4px;
+}
+
+/* ── Recipient list ───────────────────────────────────────── */
+.pgp-recipient-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pgp-recipient-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid #edebe9;
+  border-radius: 3px;
+}
+
+.pgp-recipient-item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pgp-recipient-item__email {
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pgp-recipient-item__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── Keyring list ─────────────────────────────────────────── */
+.pgp-key-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pgp-key-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid #edebe9;
+  border-radius: 3px;
+}
+
+.pgp-key-item__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pgp-key-item__identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.pgp-key-item__email {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pgp-key-item__name {
+  font-size: 12px;
+  color: #605e5c;
+}
+
+.pgp-key-item__meta {
+  font-size: 11px;
+  color: #a19f9d;
+  margin-top: 2px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────── */
+.pgp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.pgp-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pgp-btn--primary {
+  background: #0078d4;
+  color: #ffffff;
+  border-color: #0078d4;
+}
+
+.pgp-btn--primary:hover:not(:disabled) {
+  background: #106ebe;
+  border-color: #106ebe;
+}
+
+.pgp-btn--secondary {
+  background: #ffffff;
+  color: #0078d4;
+  border-color: #0078d4;
+}
+
+.pgp-btn--secondary:hover:not(:disabled) {
+  background: #deecf9;
+}
+
+.pgp-btn--danger {
+  background: #ffffff;
+  color: #a80000;
+  border-color: #a80000;
+}
+
+.pgp-btn--danger:hover:not(:disabled) {
+  background: #fde7e9;
+}
+
+.pgp-btn--sm {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.pgp-btn--full {
+  width: 100%;
+}
+
+/* ── Form controls ────────────────────────────────────────── */
+.pgp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.pgp-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #323130;
+}
+
+.pgp-field input,
+.pgp-field textarea,
+.pgp-field select {
+  padding: 6px 8px;
+  border: 1px solid #8a8886;
+  border-radius: 2px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #323130;
+  background: #ffffff;
+  box-sizing: border-box;
+  width: 100%;
+  transition: border-color 0.1s;
+}
+
+.pgp-field input:focus,
+.pgp-field textarea:focus,
+.pgp-field select:focus {
+  outline: none;
+  border-color: #0078d4;
+  box-shadow: 0 0 0 1px #0078d4;
+}
+
+.pgp-field textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+}
+
+.pgp-field__hint {
+  font-size: 11px;
+  color: #605e5c;
+}
+
+/* ── Toggle switch ────────────────────────────────────────── */
+.pgp-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pgp-toggle input[type="checkbox"] {
+  width: 0;
+  height: 0;
+  opacity: 0;
+  position: absolute;
+}
+
+.pgp-toggle__track {
+  position: relative;
+  width: 40px;
+  height: 20px;
+  background: #8a8886;
+  border-radius: 10px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.pgp-toggle input:checked + .pgp-toggle__track {
+  background: #0078d4;
+}
+
+.pgp-toggle__track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #ffffff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.pgp-toggle input:checked + .pgp-toggle__track::after {
+  transform: translateX(20px);
+}
+
+.pgp-toggle__label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ── Status / alert boxes ─────────────────────────────────── */
+.pgp-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 3px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.pgp-alert--success { background: #dff6dd; border-left: 3px solid #107c10; }
+.pgp-alert--error   { background: #fde7e9; border-left: 3px solid #a80000; }
+.pgp-alert--warning { background: #fff4ce; border-left: 3px solid #d83b01; }
+.pgp-alert--info    { background: #deecf9; border-left: 3px solid #0078d4; }
+
+/* ── Decrypted message area ───────────────────────────────── */
+.pgp-decrypted-body {
+  white-space: pre-wrap;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px;
+  background: #f3f2f1;
+  border-radius: 3px;
+  max-height: 300px;
+  overflow-y: auto;
+  word-break: break-word;
+}
+
+/* ── Spinner ──────────────────────────────────────────────── */
+.pgp-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #c8c6c4;
+  border-top-color: #0078d4;
+  border-radius: 50%;
+  animation: pgp-spin 0.7s linear infinite;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+@keyframes pgp-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Attachment list ──────────────────────────────────────── */
+.pgp-attachment-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pgp-attachment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #ffffff;
+  border: 1px solid #edebe9;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.pgp-attachment-item__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Utility ──────────────────────────────────────────────── */
+.pgp-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.pgp-row--between {
+  justify-content: space-between;
+}
+
+.pgp-empty {
+  text-align: center;
+  color: #a19f9d;
+  font-size: 13px;
+  padding: 20px 0;
+}
+
+.pgp-divider {
+  border: none;
+  border-top: 1px solid #edebe9;
+  margin: 12px 0;
+}
+
+.pgp-hidden {
+  display: none !important;
+}
+
+.pgp-mt-sm { margin-top: 6px; }
+.pgp-mt-md { margin-top: 12px; }
+
+/* ── Session status bar ───────────────────────────────────── */
+/*
+ * Shown when the user's private key is unlocked and cached in memory.
+ * Styled as a subtle success-tinted strip with a "Lock" button on the right.
+ */
+.pgp-session-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #dff6dd;
+  border-left: 3px solid #107c10;
+  border-radius: 3px;
+  font-size: 12px;
+  color: #107c10;
+  font-weight: 500;
+}
+
+/* ── Decrypted HTML iframe wrapper ────────────────────────── */
+/*
+ * The iframe holds HTML decrypted content and is sandboxed to prevent
+ * script execution.  The wrapper gives it a visible container with a
+ * subtle background to distinguish it from the surrounding UI.
+ */
+.pgp-decrypted-html-wrapper {
+  border: 1px solid #edebe9;
+  border-radius: 3px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.pgp-decrypted-html-wrapper iframe {
+  display: block;
+  width: 100%;
+  border: none;
+  min-height: 200px;
+}

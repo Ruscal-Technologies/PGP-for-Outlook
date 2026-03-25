@@ -1,0 +1,95 @@
+# deploy-pages.yml
+# Deploys the PGP for Outlook add-in web files to GitHub Pages on every push
+# to the main / master branch, and generates the PGP-for-Outlook.zip deployment
+# package for the new Outlook / unified manifest.
+#
+# After the first deployment:
+#   1. Copy the Pages URL (e.g. https://<org>.github.io/<repo>/) from
+#      Settings → Pages in your GitHub repository.
+#   2. In the Office add-in manifest, replace every occurrence of
+#      "~remoteAppUrl" with that URL (without trailing slash where the
+#      manifest already includes a path prefix).
+#   3. Commit and push the updated manifest; the add-in will then load
+#      its task panes from GitHub Pages.
+#
+# CORS note:
+#   GitHub Pages serves files with permissive CORS headers, which is
+#   required for Office.js to load the task-pane iframes.  No extra
+#   configuration is needed.
+#
+# Permissions required:
+#   This workflow uses the GITHUB_TOKEN that is automatically provided by
+#   Actions.  The token needs "pages: write" and "id-token: write" scopes
+#   (granted below).  No personal access tokens are required.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  # Allow manual re-deployment from the Actions tab
+  workflow_dispatch:
+
+# Only one deployment at a time; cancel in-progress runs on new push
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build deployment ZIP (unified manifest)
+        run: bash manifest/build-package.sh
+
+      # The web app lives in "web/".
+      # We upload that directory as the Pages artifact so its contents
+      # appear at the root of the Pages URL (no subdirectory prefix needed).
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "web"
+
+      - name: Upload ZIP as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PGP-for-Outlook
+          path: manifest/PGP-for-Outlook.zip
+          if-no-files-found: error
+
+      # Attach the ZIP to a GitHub release when a version tag (v*) is pushed
+      - name: Attach ZIP to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: manifest/PGP-for-Outlook.zip
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

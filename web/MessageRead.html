@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PGP Decrypt Message</title>
+
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="https://static2.sharepointonline.com/files/fabric/office-ui-fabric-core/9.6.0/css/fabric.min.css" />
+  <link rel="stylesheet" href="css/pgp-addon.css" />
+</head>
+<body>
+<div class="pgp-pane" id="app">
+
+  <!-- ── Global status ──────────────────────────────────── -->
+  <div id="status-bar" class="pgp-hidden"></div>
+
+  <!-- ── Session key status ─────────────────────────────── -->
+  <div id="session-status" class="pgp-session-status pgp-hidden">
+    <span id="session-status-text"></span>
+    <button class="pgp-btn pgp-btn--secondary pgp-btn--sm" id="btn-lock-session">Lock</button>
+  </div>
+
+  <!-- ── No key warning ─────────────────────────────────── -->
+  <div id="panel-no-key" class="pgp-alert pgp-alert--error pgp-hidden">
+    You don't have a PGP key pair. Open <strong>Manage Keys</strong> to generate one.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       MESSAGE STATUS
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section" id="section-message-status">
+    <div class="pgp-section-title">Message Status</div>
+    <div id="detection-loading" class="pgp-alert pgp-alert--info">
+      <span class="pgp-spinner"></span>&nbsp; Analysing message…
+    </div>
+    <div id="detection-result" class="pgp-hidden"></div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       DECRYPT BODY
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section pgp-hidden" id="section-decrypt">
+    <div class="pgp-section-title">Encrypted Message</div>
+    <p style="font-size:12px;color:#605e5c;margin:0 0 8px;">
+      This message is PGP-encrypted. Enter your passphrase to decrypt it.
+    </p>
+    <button class="pgp-btn pgp-btn--primary pgp-btn--full" id="btn-decrypt">
+      <span class="pgp-spinner pgp-hidden" id="decrypt-spinner"></span>
+      Decrypt Message
+    </button>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       DECRYPTED BODY
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section pgp-hidden" id="section-decrypted">
+    <div class="pgp-row pgp-row--between" style="margin-bottom:8px;">
+      <div class="pgp-section-title" style="margin:0;">Decrypted Content</div>
+      <div class="pgp-row" style="gap:6px;align-items:center;">
+        <button class="pgp-btn pgp-btn--secondary pgp-btn--sm" id="btn-copy-decrypted">Copy</button>
+        <button class="pgp-btn pgp-btn--secondary pgp-btn--sm" id="btn-popout-decrypted">&#x26F6; Pop Out</button>
+        <div id="signature-badge"></div>
+      </div>
+    </div>
+    <div id="signature-details" class="pgp-hidden" style="font-size:11px;color:#605e5c;margin-bottom:8px;"></div>
+    <!-- Plain-text decrypted content (shown when payload is not HTML) -->
+    <div class="pgp-decrypted-body pgp-hidden" id="decrypted-body"></div>
+    <!-- HTML decrypted content — sandboxed iframe prevents script execution -->
+    <div class="pgp-decrypted-html-wrapper pgp-hidden" id="decrypted-html-wrapper">
+      <iframe id="decrypted-html-frame"
+        sandbox="allow-same-origin"
+        referrerpolicy="no-referrer"
+        style="width:100%;border:none;min-height:320px;"
+        title="Decrypted message content"></iframe>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SIGNED ONLY (not encrypted)
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section pgp-hidden" id="section-signed-only">
+    <div class="pgp-section-title">Signed Message</div>
+    <div id="signed-body-status"></div>
+    <div class="pgp-decrypted-body pgp-mt-sm pgp-hidden" id="signed-body"></div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       ATTACHMENTS
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section pgp-hidden" id="section-attachments">
+    <div class="pgp-section-title">Encrypted Attachments</div>
+    <ul class="pgp-attachment-list" id="attachment-list"></ul>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       REPLY ENCRYPTED
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section" id="section-reply">
+    <div class="pgp-section-title">Reply</div>
+    <!-- Desktop hint — hidden on mobile by JS -->
+    <p id="reply-desktop-hint" style="font-size:12px;color:#605e5c;margin:0 0 8px;">
+      Open a reply compose window. After it opens, click <strong>Encrypt</strong>
+      in the ribbon to encrypt before sending.
+    </p>
+    <!-- Mobile hint — shown on mobile by JS -->
+    <p id="reply-mobile-hint" class="pgp-hidden" style="font-size:12px;color:#605e5c;margin:0 0 8px;">
+      Compose your reply below, tap <strong>Encrypt Reply</strong>, then copy the
+      result and paste it as the body of a normal reply in Outlook.
+    </p>
+    <div class="pgp-row" style="gap:8px;">
+      <button class="pgp-btn pgp-btn--primary" style="flex:1;" id="btn-reply-encrypted">
+        ↩ Reply Encrypted
+      </button>
+      <button class="pgp-btn pgp-btn--secondary pgp-btn--sm" id="btn-reply-all-encrypted"
+        title="Reply All Encrypted">
+        Reply All
+      </button>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       MOBILE INLINE COMPOSE
+       Shown instead of the ribbon-encrypt flow on iOS/Android
+       because Outlook mobile has no compose add-in surface.
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section pgp-hidden" id="section-mobile-compose">
+    <div class="pgp-section-title" id="mobile-compose-title">Compose Encrypted Reply</div>
+    <div id="mobile-compose-key-status" class="pgp-hidden"
+      style="font-size:12px;color:#605e5c;margin-bottom:6px;"></div>
+    <textarea id="mobile-compose-body"
+      style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #8a8886;
+             border-radius:2px;font-size:13px;font-family:inherit;resize:vertical;
+             min-height:120px;"
+      placeholder="Type your reply here…"></textarea>
+    <!-- Shown after encryption — instructions + copy button -->
+    <div id="mobile-copy-instructions" class="pgp-hidden"
+      style="font-size:12px;color:#605e5c;margin:8px 0 4px;">
+      Your reply is encrypted. Tap <strong>Copy</strong>, then start a reply in
+      Outlook and paste this as the message body.
+    </div>
+    <div id="mobile-compose-status" class="pgp-hidden" style="margin-top:6px;"></div>
+    <div class="pgp-row" style="gap:8px;margin-top:8px;">
+      <button class="pgp-btn pgp-btn--primary" style="flex:1;" id="btn-mobile-encrypt-send">
+        <span class="pgp-spinner pgp-hidden" id="mobile-encrypt-spinner"></span>
+        Encrypt Reply
+      </button>
+      <button class="pgp-btn pgp-btn--secondary pgp-btn--sm pgp-hidden" id="btn-mobile-copy-armor">
+        Copy
+      </button>
+      <button class="pgp-btn pgp-btn--secondary" id="btn-mobile-compose-cancel">Cancel</button>
+    </div>
+  </section>
+
+  <!-- ── Passphrase modal ────────────────────────────────── -->
+  <div id="passphrase-modal" class="pgp-hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:1000;">
+    <div style="background:#fff;border-radius:4px;padding:20px;width:280px;max-width:90vw;box-shadow:0 4px 20px rgba(0,0,0,0.2);">
+      <div style="font-size:14px;font-weight:600;margin-bottom:12px;">Enter Passphrase</div>
+      <p style="font-size:13px;color:#605e5c;margin:0 0 10px;" id="passphrase-modal-msg">
+        Your private key passphrase is required to decrypt.
+      </p>
+      <input type="password" id="passphrase-input" placeholder="Passphrase"
+        style="width:100%;box-sizing:border-box;padding:7px 8px;border:1px solid #8a8886;border-radius:2px;font-size:13px;margin-bottom:8px;" />
+      <div id="passphrase-error" class="pgp-hidden" style="color:#a80000;font-size:12px;margin-bottom:8px;"></div>
+      <div class="pgp-row" style="gap:8px;">
+        <button class="pgp-btn pgp-btn--primary" style="flex:1;" id="btn-passphrase-ok">OK</button>
+        <button class="pgp-btn pgp-btn--secondary" id="btn-passphrase-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.pgp-pane -->
+
+<script type="module" src="MessageRead.js"></script>
+</body>
+</html>

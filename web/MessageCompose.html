@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PGP Encrypt Message</title>
+
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="https://static2.sharepointonline.com/files/fabric/office-ui-fabric-core/9.6.0/css/fabric.min.css" />
+  <link rel="stylesheet" href="css/pgp-addon.css" />
+</head>
+<body>
+<div class="pgp-pane" id="app">
+
+  <!-- ── Global status ──────────────────────────────────── -->
+  <div id="status-bar" class="pgp-hidden"></div>
+
+  <!-- ── Session key status ─────────────────────────────── -->
+  <div id="session-status" class="pgp-session-status pgp-hidden">
+    <span id="session-status-text"></span>
+    <button class="pgp-btn pgp-btn--secondary pgp-btn--sm" id="btn-lock-session">Lock</button>
+  </div>
+
+  <!-- ── No key warning ─────────────────────────────────── -->
+  <div id="panel-no-key" class="pgp-alert pgp-alert--error pgp-hidden">
+    You don't have a PGP key pair. Open <strong>Manage Keys</strong> to generate one before encrypting messages.
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       RECIPIENTS
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section" id="section-recipients">
+    <div class="pgp-row pgp-row--between" style="margin-bottom:8px;">
+      <div class="pgp-section-title" style="margin:0;">Recipients</div>
+      <button class="pgp-btn pgp-btn--secondary pgp-btn--sm" id="btn-refresh-recipients">↻ Refresh</button>
+    </div>
+
+    <div id="recipients-loading" class="pgp-alert pgp-alert--info">
+      <span class="pgp-spinner"></span>&nbsp; Looking up keys for recipients…
+    </div>
+
+    <ul class="pgp-recipient-list pgp-hidden" id="recipient-list"></ul>
+
+    <div id="recipients-empty" class="pgp-empty pgp-hidden">
+      No recipients found. Add recipients in the message header first.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       COMPANY KEY
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section" id="section-company-key">
+    <div class="pgp-section-title">Company / Legal Key</div>
+
+    <div id="company-key-disabled" class="pgp-hidden" style="font-size:12px;color:#605e5c;">
+      Company key is not configured for your organization.
+    </div>
+
+    <div id="company-key-panel" class="pgp-hidden">
+      <label class="pgp-toggle" id="company-key-toggle-wrapper">
+        <input type="checkbox" id="company-key-toggle" checked />
+        <span class="pgp-toggle__track"></span>
+        <span class="pgp-toggle__label">Include company key on this message</span>
+      </label>
+      <ul class="pgp-key-list pgp-mt-sm" id="company-key-list"></ul>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       ATTACHMENTS
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section" id="section-attachments">
+    <div class="pgp-section-title">Attachments</div>
+    <p style="font-size:12px;color:#605e5c;margin:0 0 8px 0;">
+      Each attachment will be encrypted as a separate <code>.pgp</code> file
+      and will replace the original.
+    </p>
+    <div id="attachments-loading" class="pgp-hidden" style="font-size:13px;color:#605e5c;">
+      <span class="pgp-spinner"></span>&nbsp; Loading attachments…
+    </div>
+    <ul class="pgp-attachment-list" id="attachment-list">
+      <li class="pgp-empty" id="attachments-empty">No attachments.</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SIGN
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section">
+    <label class="pgp-toggle">
+      <!-- Default is unchecked; MessageCompose.js sets this from the stored
+           personal preference (pgp_sign_default) on load.  The user can
+           flip the toggle here to override the default for this message. -->
+      <input type="checkbox" id="sign-toggle" />
+      <span class="pgp-toggle__track"></span>
+      <span class="pgp-toggle__label">Sign this message</span>
+    </label>
+    <p style="font-size:12px;color:#605e5c;margin:6px 0 0 50px;">
+      Signing lets recipients verify the message is genuinely from you.
+      Your personal default can be changed in <strong>Manage Keys → Personal Preferences</strong>.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       ENCRYPT BUTTON
+  ══════════════════════════════════════════════════════════ -->
+  <div>
+    <button class="pgp-btn pgp-btn--primary pgp-btn--full" id="btn-encrypt" disabled>
+      <span class="pgp-spinner pgp-hidden" id="encrypt-spinner"></span>
+      Encrypt Message
+    </button>
+    <p style="font-size:11px;color:#605e5c;margin:6px 0 0;text-align:center;">
+      After encrypting, click <strong>Send</strong> in Outlook as normal.
+    </p>
+  </div>
+
+  <!-- ── Inline-attachment warning modal ───────────────── -->
+  <div id="cid-warning-modal" class="pgp-hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:1000;">
+    <div style="background:#fff;border-radius:4px;padding:20px;width:300px;max-width:90vw;box-shadow:0 4px 20px rgba(0,0,0,0.2);">
+      <div style="font-size:14px;font-weight:600;margin-bottom:10px;color:#a80000;">⚠ Inline Attachments Detected</div>
+      <p style="font-size:13px;color:#605e5c;margin:0 0 10px;">
+        This message contains <strong>inline attachments</strong> (e.g. embedded
+        images) that are not compatible with PGP encryption. After decryption the
+        recipient would see broken image placeholders.
+      </p>
+      <p id="cid-hint-web" style="font-size:12px;color:#605e5c;margin:0 0 14px;">
+        Choose <strong>Convert</strong> to remove the inline images from the
+        message body and re-attach them as regular file attachments, or
+        <strong>Continue Anyway</strong> to encrypt as-is with broken image
+        placeholders for the recipient.
+      </p>
+      <p id="cid-hint-desktop" style="font-size:12px;color:#605e5c;margin:0 0 14px;">
+        To fix this, remove the inline images from the message body and
+        re-attach them as regular file attachments before encrypting, or choose
+        <strong>Continue Anyway</strong> to encrypt as-is.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button class="pgp-btn pgp-btn--primary pgp-btn--sm" id="btn-cid-convert">Convert to Regular Attachments</button>
+        <div class="pgp-row" style="gap:8px;">
+          <button class="pgp-btn pgp-btn--secondary pgp-btn--sm" style="flex:1;" id="btn-cid-continue">Continue Anyway</button>
+          <button class="pgp-btn pgp-btn--secondary pgp-btn--sm" style="flex:1;" id="btn-cid-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Passphrase modal (shown programmatically) ──────── -->
+  <div id="passphrase-modal" class="pgp-hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:1000;">
+    <div style="background:#fff;border-radius:4px;padding:20px;width:280px;max-width:90vw;box-shadow:0 4px 20px rgba(0,0,0,0.2);">
+      <div style="font-size:14px;font-weight:600;margin-bottom:12px;">Enter Passphrase</div>
+      <p style="font-size:13px;color:#605e5c;margin:0 0 10px;">
+        Your private key passphrase is required to sign and encrypt this message.
+      </p>
+      <input type="password" id="passphrase-input" placeholder="Passphrase"
+        style="width:100%;box-sizing:border-box;padding:7px 8px;border:1px solid #8a8886;border-radius:2px;font-size:13px;margin-bottom:8px;" />
+      <div id="passphrase-error" class="pgp-hidden" style="color:#a80000;font-size:12px;margin-bottom:8px;"></div>
+      <div class="pgp-row" style="gap:8px;">
+        <button class="pgp-btn pgp-btn--primary" style="flex:1;" id="btn-passphrase-ok">OK</button>
+        <button class="pgp-btn pgp-btn--secondary" id="btn-passphrase-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.pgp-pane -->
+
+<script type="module" src="MessageCompose.js"></script>
+</body>
+</html>

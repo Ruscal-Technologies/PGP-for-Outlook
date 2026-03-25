@@ -1,0 +1,16 @@
+{
+  "_comment": "Publish this file at ONE of the following URLs (the add-in tries them in order):",
+  "_comment2": "  Primary:  https://yourdomain.com/.well-known/pgp-for-outlook-addin/company-config.json",
+  "_comment3": "  Fallback: https://openpgpkey.yourdomain.com/.well-known/pgp-for-outlook-addin/company-config.json",
+  "_comment4": "The add-in fetches it automatically based on the signed-in user's email domain.",
+
+  "companyKeyEnabled": true,
+  "companyKeyRequired": false,
+  "companyKeyEmails": [
+    "legal@yourdomain.com"
+  ],
+
+  "_comment5": "Set hideSupportButton to true to remove the Ko-fi support button from the Key Management pane.",
+  "_comment6": "When true, the external Ko-fi script is never loaded. Defaults to false.",
+  "hideSupportButton": false
+}
