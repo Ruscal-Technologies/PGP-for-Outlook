@@ -47,7 +47,7 @@
           "id": "FunctionRuntime",
           "type": "general",
           "code": {
-            "page": "https://github.ruscaltech.com/PGP-for-Outlook/Functions/FunctionFile.html"
+            "page": "https://pgp-outlook.ruscaltech.com/Functions/FunctionFile.html"
           },
           "lifetime": "short",
           "actions": [
@@ -67,7 +67,7 @@
           "id": "ReadTaskPane",
           "type": "general",
           "code": {
-            "page": "https://github.ruscaltech.com/PGP-for-Outlook/MessageRead.html"
+            "page": "https://pgp-outlook.ruscaltech.com/MessageRead.html"
           },
           "lifetime": "short",
           "actions": [
@@ -82,7 +82,7 @@
           "id": "ComposeTaskPane",
           "type": "general",
           "code": {
-            "page": "https://github.ruscaltech.com/PGP-for-Outlook/MessageCompose.html"
+            "page": "https://pgp-outlook.ruscaltech.com/MessageCompose.html"
           },
           "lifetime": "short",
           "actions": [
@@ -97,7 +97,7 @@
           "id": "KeyMgmtTaskPane",
           "type": "general",
           "code": {
-            "page": "https://github.ruscaltech.com/PGP-for-Outlook/KeyManagement.html"
+            "page": "https://pgp-outlook.ruscaltech.com/KeyManagement.html"
           },
           "lifetime": "short",
           "actions": [
@@ -120,9 +120,9 @@
                   "id": "msgReadGroup",
                   "label": "PGP Encryption",
                   "icons": [
-                    { "size": 16, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon16.png" },
-                    { "size": 32, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon32.png" },
-                    { "size": 80, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon80.png" }
+                    { "size": 16, "url": "https://pgp-outlook.ruscaltech.com/images/Icon16.png" },
+                    { "size": 32, "url": "https://pgp-outlook.ruscaltech.com/images/Icon32.png" },
+                    { "size": 80, "url": "https://pgp-outlook.ruscaltech.com/images/Icon80.png" }
                   ],
                   "controls": [
                     {
@@ -130,9 +130,9 @@
                       "type": "button",
                       "label": "Decrypt",
                       "icons": [
-                        { "size": 16, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/IconDecrypt16.png" },
-                        { "size": 32, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/IconDecrypt32.png" },
-                        { "size": 80, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/IconDecrypt80.png" }
+                        { "size": 16, "url": "https://pgp-outlook.ruscaltech.com/images/IconDecrypt16.png" },
+                        { "size": 32, "url": "https://pgp-outlook.ruscaltech.com/images/IconDecrypt32.png" },
+                        { "size": 80, "url": "https://pgp-outlook.ruscaltech.com/images/IconDecrypt80.png" }
                       ],
                       "supertip": {
                         "title": "Decrypt PGP Message",
@@ -145,9 +145,9 @@
                       "type": "button",
                       "label": "Reply Encrypted",
                       "icons": [
-                        { "size": 16, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt16.png" },
-                        { "size": 32, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt32.png" },
-                        { "size": 80, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt80.png" }
+                        { "size": 16, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncrypt16.png" },
+                        { "size": 32, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncrypt32.png" },
+                        { "size": 80, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncrypt80.png" }
                       ],
                       "supertip": {
                         "title": "Reply Encrypted",
@@ -160,9 +160,9 @@
                       "type": "button",
                       "label": "Manage Keys",
                       "icons": [
-                        { "size": 16, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon16.png" },
-                        { "size": 32, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon32.png" },
-                        { "size": 80, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon80.png" }
+                        { "size": 16, "url": "https://pgp-outlook.ruscaltech.com/images/Icon16.png" },
+                        { "size": 32, "url": "https://pgp-outlook.ruscaltech.com/images/Icon32.png" },
+                        { "size": 80, "url": "https://pgp-outlook.ruscaltech.com/images/Icon80.png" }
                       ],
                       "supertip": {
                         "title": "PGP Key Management",
@@ -186,9 +186,9 @@
                   "id": "msgComposeGroup",
                   "label": "PGP Encryption",
                   "icons": [
-                    { "size": 16, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon16.png" },
-                    { "size": 32, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon32.png" },
-                    { "size": 80, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon80.png" }
+                    { "size": 16, "url": "https://pgp-outlook.ruscaltech.com/images/Icon16.png" },
+                    { "size": 32, "url": "https://pgp-outlook.ruscaltech.com/images/Icon32.png" },
+                    { "size": 80, "url": "https://pgp-outlook.ruscaltech.com/images/Icon80.png" }
                   ],
                   "controls": [
                     {
@@ -196,9 +196,9 @@
                       "type": "button",
                       "label": "Encrypt",
                       "icons": [
-                        { "size": 16, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt16.png" },
-                        { "size": 32, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt32.png" },
-                        { "size": 80, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt80.png" }
+                        { "size": 16, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncrypt16.png" },
+                        { "size": 32, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncrypt32.png" },
+                        { "size": 80, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncrypt80.png" }
                       ],
                       "supertip": {
                         "title": "Encrypt PGP Message",
@@ -211,9 +211,9 @@
                       "type": "button",
                       "label": "Manage Keys",
                       "icons": [
-                        { "size": 16, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon16.png" },
-                        { "size": 32, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon32.png" },
-                        { "size": 80, "url": "https://github.ruscaltech.com/PGP-for-Outlook/images/Icon80.png" }
+                        { "size": 16, "url": "https://pgp-outlook.ruscaltech.com/images/Icon16.png" },
+                        { "size": 32, "url": "https://pgp-outlook.ruscaltech.com/images/Icon32.png" },
+                        { "size": 80, "url": "https://pgp-outlook.ruscaltech.com/images/Icon80.png" }
                       ],
                       "supertip": {
                         "title": "PGP Key Management",

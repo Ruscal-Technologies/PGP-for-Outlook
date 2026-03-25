@@ -364,3 +364,6 @@ FodyWeavers.xsd
 
 # Generated add-in deployment package
 manifest/*.zip
+
+# Claude Code local settings
+.claude/

@@ -16,8 +16,8 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="PGP Encryption" />
   <Description DefaultValue="PGP message encryption, decryption and key management for Outlook." />
-  <IconUrl DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/Icon64.png" />
-  <HighResolutionIconUrl DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/Icon128.png" />
+  <IconUrl DefaultValue="https://pgp-outlook.ruscaltech.com/images/Icon64.png" />
+  <HighResolutionIconUrl DefaultValue="https://pgp-outlook.ruscaltech.com/images/Icon128.png" />
   <SupportUrl DefaultValue="https://github.com/Ruscal-Technologies/PGP-for-Outlook/issues" />
 
   <AppDomains>
@@ -30,7 +30,7 @@
       server includes "Access-Control-Allow-Origin: *" on its .well-known endpoint,
       which all RFC-compliant WKD deployments must do.
 
-      The source domain (github.ruscaltech.com) is trusted automatically by
+      The source domain (pgp-outlook.ruscaltech.com) is trusted automatically by
       Office and does not need to be listed here.
 
       List here only domains that the add-in's task pane may *navigate to*:
@@ -54,7 +54,7 @@
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/MessageRead.html" />
+        <SourceLocation DefaultValue="https://pgp-outlook.ruscaltech.com/MessageRead.html" />
         <RequestedHeight>300</RequestedHeight>
       </DesktopSettings>
     </Form>
@@ -209,28 +209,28 @@
     <Resources>
       <bt:Images>
         <!-- PGP Encryption group button – envelope + padlock + crossed keys -->
-        <bt:Image id="icon16" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/Icon16.png" />
-        <bt:Image id="icon32" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/Icon32.png" />
-        <bt:Image id="icon80" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/Icon80.png" />
+        <bt:Image id="icon16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/Icon16.png" />
+        <bt:Image id="icon32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/Icon32.png" />
+        <bt:Image id="icon80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/Icon80.png" />
         <!-- Manage Keys – person silhouette + crossed keys -->
-        <bt:Image id="iconKeys16" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconKeys16.png" />
-        <bt:Image id="iconKeys32" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconKeys32.png" />
-        <bt:Image id="iconKeys80" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconKeys80.png" />
+        <bt:Image id="iconKeys16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconKeys16.png" />
+        <bt:Image id="iconKeys32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconKeys32.png" />
+        <bt:Image id="iconKeys80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconKeys80.png" />
         <!-- Decrypt – red open padlock -->
-        <bt:Image id="iconDecrypt16" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconDecrypt16.png" />
-        <bt:Image id="iconDecrypt32" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconDecrypt32.png" />
-        <bt:Image id="iconDecrypt80" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconDecrypt80.png" />
+        <bt:Image id="iconDecrypt16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconDecrypt16.png" />
+        <bt:Image id="iconDecrypt32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconDecrypt32.png" />
+        <bt:Image id="iconDecrypt80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconDecrypt80.png" />
         <!-- Encrypt – green closed padlock -->
-        <bt:Image id="iconEncrypt16" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt16.png" />
-        <bt:Image id="iconEncrypt32" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt32.png" />
-        <bt:Image id="iconEncrypt80" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt80.png" />
+        <bt:Image id="iconEncrypt16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt16.png" />
+        <bt:Image id="iconEncrypt32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt32.png" />
+        <bt:Image id="iconEncrypt80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt80.png" />
       </bt:Images>
 
       <bt:Urls>
-        <bt:Url id="functionFile"              DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/Functions/FunctionFile.html" />
-        <bt:Url id="messageReadTaskPaneUrl"    DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/MessageRead.html" />
-        <bt:Url id="messageComposeTaskPaneUrl" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/MessageCompose.html" />
-        <bt:Url id="keyManagementTaskPaneUrl"  DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/KeyManagement.html" />
+        <bt:Url id="functionFile"              DefaultValue="https://pgp-outlook.ruscaltech.com/Functions/FunctionFile.html" />
+        <bt:Url id="messageReadTaskPaneUrl"    DefaultValue="https://pgp-outlook.ruscaltech.com/MessageRead.html" />
+        <bt:Url id="messageComposeTaskPaneUrl" DefaultValue="https://pgp-outlook.ruscaltech.com/MessageCompose.html" />
+        <bt:Url id="keyManagementTaskPaneUrl"  DefaultValue="https://pgp-outlook.ruscaltech.com/KeyManagement.html" />
       </bt:Urls>
 
       <bt:ShortStrings>
@@ -441,28 +441,28 @@
       <Resources>
         <bt:Images>
           <!-- PGP Encryption group button – envelope + padlock + crossed keys -->
-          <bt:Image id="icon16" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/Icon16.png" />
-          <bt:Image id="icon32" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/Icon32.png" />
-          <bt:Image id="icon80" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/Icon80.png" />
+          <bt:Image id="icon16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/Icon16.png" />
+          <bt:Image id="icon32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/Icon32.png" />
+          <bt:Image id="icon80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/Icon80.png" />
           <!-- Manage Keys – person silhouette + crossed keys -->
-          <bt:Image id="iconKeys16" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconKeys16.png" />
-          <bt:Image id="iconKeys32" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconKeys32.png" />
-          <bt:Image id="iconKeys80" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconKeys80.png" />
+          <bt:Image id="iconKeys16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconKeys16.png" />
+          <bt:Image id="iconKeys32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconKeys32.png" />
+          <bt:Image id="iconKeys80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconKeys80.png" />
           <!-- Decrypt – red open padlock -->
-          <bt:Image id="iconDecrypt16" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconDecrypt16.png" />
-          <bt:Image id="iconDecrypt32" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconDecrypt32.png" />
-          <bt:Image id="iconDecrypt80" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconDecrypt80.png" />
+          <bt:Image id="iconDecrypt16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconDecrypt16.png" />
+          <bt:Image id="iconDecrypt32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconDecrypt32.png" />
+          <bt:Image id="iconDecrypt80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconDecrypt80.png" />
           <!-- Encrypt – green closed padlock -->
-          <bt:Image id="iconEncrypt16" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt16.png" />
-          <bt:Image id="iconEncrypt32" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt32.png" />
-          <bt:Image id="iconEncrypt80" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/images/IconEncrypt80.png" />
+          <bt:Image id="iconEncrypt16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt16.png" />
+          <bt:Image id="iconEncrypt32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt32.png" />
+          <bt:Image id="iconEncrypt80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt80.png" />
         </bt:Images>
 
         <bt:Urls>
-          <bt:Url id="functionFile"              DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/Functions/FunctionFile.html" />
-          <bt:Url id="messageReadTaskPaneUrl"    DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/MessageRead.html" />
-          <bt:Url id="messageComposeTaskPaneUrl" DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/MessageCompose.html" />
-          <bt:Url id="keyManagementTaskPaneUrl"  DefaultValue="https://github.ruscaltech.com/PGP-for-Outlook/KeyManagement.html" />
+          <bt:Url id="functionFile"              DefaultValue="https://pgp-outlook.ruscaltech.com/Functions/FunctionFile.html" />
+          <bt:Url id="messageReadTaskPaneUrl"    DefaultValue="https://pgp-outlook.ruscaltech.com/MessageRead.html" />
+          <bt:Url id="messageComposeTaskPaneUrl" DefaultValue="https://pgp-outlook.ruscaltech.com/MessageCompose.html" />
+          <bt:Url id="keyManagementTaskPaneUrl"  DefaultValue="https://pgp-outlook.ruscaltech.com/KeyManagement.html" />
         </bt:Urls>
 
         <bt:ShortStrings>

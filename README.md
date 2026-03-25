@@ -212,7 +212,7 @@ Copy the folder to a virtual directory configured for HTTPS.
 ### 2. Update the manifest
 
 The manifest in this repository is pre-configured to point at the GitHub Pages
-deployment for this project (`https://github.ruscaltech.com/PGP-for-Outlook`).
+deployment for this project (`https://pgp-outlook.ruscaltech.com`).
 If you fork the project or host the `web/` folder elsewhere, open
 `manifest/manifest.xml` and update every URL accordingly.  Do **not** include a
 trailing slash:
@@ -226,7 +226,7 @@ trailing slash:
 A quick way to do all substitutions at once (Linux / macOS):
 
 ```bash
-sed -i 's|https://github.ruscaltech.com/PGP-for-Outlook|https://your-org.github.io/your-repo|g' \
+sed -i 's|https://pgp-outlook.ruscaltech.com|https://your-org.github.io/your-repo|g' \
     manifest/manifest.xml
 ```
 
@@ -470,6 +470,12 @@ for the full terms.
 
 Third-party dependencies are under their own licenses (see the Dependencies
 table above).
+
+## AI Assistance
+
+Documentation and code review for this project may have been assisted by
+[Claude Code](https://claude.ai/code) (Anthropic).  All content is the
+property of Ruscal Technologies.
 
 ---
 

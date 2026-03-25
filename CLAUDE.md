@@ -81,7 +81,7 @@ The unlocked private key is held **only in the JavaScript heap** — never writt
 
 `manifest/manifest.xml` is an XML-format Office add-in manifest (VersionOverrides 1.0). It targets `MailApp` type with Mailbox 1.8 requirement.
 
-The manifest in the repo points to `https://github.ruscaltech.com/PGP-for-Outlook`. When forking or self-hosting, replace every URL in the file and regenerate the `<Id>` GUID. The `<AppDomains>` section controls task-pane navigation only, **not** `fetch()`/XHR (which is governed by CORS on the target server).
+The manifest in the repo points to `https://pgp-outlook.ruscaltech.com`. When forking or self-hosting, replace every URL in the file and regenerate the `<Id>` GUID. The `<AppDomains>` section controls task-pane navigation only, **not** `fetch()`/XHR (which is governed by CORS on the target server).
 
 ## Key discovery chain
 
