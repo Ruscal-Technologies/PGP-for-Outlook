@@ -49,7 +49,8 @@ software, plugins, or IT-managed infrastructure.
 
 ```
 manifest/
-└── manifest.xml                      ← Office add-in manifest
+├── manifest.xml                      ← Office add-in XML manifest (classic)
+└── manifest.json                     ← Unified manifest (Teams / new Outlook)
 
 web/                                  ← Web app (host on any HTTPS server)
 ├── MessageRead.html / .js            ← Decrypt & verify incoming messages
@@ -65,7 +66,8 @@ web/                                  ← Web app (host on any HTTPS server)
 │       ├── key-storage.js            ← Office roaming settings wrapper
 │       ├── keyring.js                ← Contacts' key management
 │       ├── key-discovery.js          ← WKD / VKS / keyring lookup
-│       └── org-config.js            ← Organization-level configuration
+│       ├── org-config.js            ← Organization-level configuration
+│       └── session-cache.js          ← In-memory unlocked-key cache
 ├── css/
 │   └── pgp-addon.css                 ← Shared Fluent UI styles
 └── images/                           ← Add-in icons
@@ -274,6 +276,7 @@ See `docs/company-config.example.json` for the full documented template.
 | `companyKeyEnabled` | boolean | `false` | Whether the company key feature is active |
 | `companyKeyRequired` | boolean | `false` | If `true`, users cannot opt out per-message |
 | `companyKeyEmails` | string[] | `[]` | Email addresses whose keys are added to every encryption |
+| `hideSupportButton` | boolean | `false` | If `true`, hides the Ko-fi support button from the Key Management pane (the external CDN script is never loaded) |
 
 ### Step 2: Publish it
 
