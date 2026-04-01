@@ -415,8 +415,17 @@ export async function encryptMessage(text, recipientPublicKeys, signingKey = nul
     //                           rejectHashAlgorithms during getEncryptionKey() validation
     // Both are resolved by _buildLegacyKeyReadConfig(), which removes SHA-1 from the
     // rejected hash set AND removes DSA/ElGamal from the rejected PK algorithm set.
+    //
+    // Re-parsing from armor is required (not just passing the config to encrypt) because
+    // OpenPGP.js v5 may cache validation state on the pre-parsed Key object from its
+    // original strict-config parse.  Re-reading via readKey() with the legacy config
+    // produces a clean Key object whose lazy validation will use the permissive config.
     if (_isWeakKeyError(err) || _isLegacySelfSigError(err)) {
-      return await openpgp.encrypt({ ...options, config: _buildLegacyKeyReadConfig() });
+      const config = _buildLegacyKeyReadConfig();
+      const reparsedKeys = await Promise.all(
+        recipientPublicKeys.map(k => openpgp.readKey({ armoredKey: k.armor(), config }))
+      );
+      return await openpgp.encrypt({ ...options, encryptionKeys: reparsedKeys, config });
     }
     throw err;
   }
@@ -494,7 +503,11 @@ export async function encryptAttachment(data, filename, recipientPublicKeys, sig
     return await openpgp.encrypt(options);
   } catch (err) {
     if (_isWeakKeyError(err) || _isLegacySelfSigError(err)) {
-      return await openpgp.encrypt({ ...options, config: _buildLegacyKeyReadConfig() });
+      const config = _buildLegacyKeyReadConfig();
+      const reparsedKeys = await Promise.all(
+        recipientPublicKeys.map(k => openpgp.readKey({ armoredKey: k.armor(), config }))
+      );
+      return await openpgp.encrypt({ ...options, encryptionKeys: reparsedKeys, config });
     }
     throw err;
   }
