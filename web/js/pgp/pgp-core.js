@@ -449,14 +449,27 @@ export async function encryptMessage(text, recipientPublicKeys, signingKey = nul
  */
 export async function decryptMessage(armoredMessage, decryptionKey, verificationKeys = []) {
   const message = await openpgp.readMessage({ armoredMessage });
-  const result = await openpgp.decrypt({
+  const decryptOptions = {
     message,
     decryptionKeys: decryptionKey,
     verificationKeys: verificationKeys.length > 0 ? verificationKeys : undefined,
     // expectSigned: false means we don't throw if there's no signature.
     // This is correct behavior for encrypted-only (no signature) messages.
     expectSigned: false,
-  });
+  };
+
+  let result;
+  try {
+    result = await openpgp.decrypt(decryptOptions);
+  } catch (err) {
+    // The decryption key may have SHA-1 self-signatures (e.g. DSA/ElGamal keys from
+    // Symantec Desktop Encryption).  Unlike the encryption path we cannot re-parse from
+    // armor here because the key is already unlocked; passing the permissive config
+    // directly to openpgp.decrypt() is sufficient — it governs all internal validation
+    // calls (getPrimaryUser, verifyPrimaryUser) made during that operation.
+    if (!_isLegacySelfSigError(err)) throw err;
+    result = await openpgp.decrypt({ ...decryptOptions, config: _buildLegacyKeyReadConfig() });
+  }
 
   let signatureResult = { valid: null, signedByKeyId: null };
   if (result.signatures && result.signatures.length > 0) {
@@ -542,13 +555,21 @@ export async function hasWeakEncryptionKey(keys) {
  */
 export async function decryptAttachment(armoredMessage, decryptionKey) {
   const message = await openpgp.readMessage({ armoredMessage });
-  const result = await openpgp.decrypt({
+  const decryptOptions = {
     message,
     decryptionKeys: decryptionKey,
     // format: 'binary' returns a Uint8Array instead of a string, which is
     // required for arbitrary binary files (not just text).
     format: 'binary',
-  });
+  };
+
+  let result;
+  try {
+    result = await openpgp.decrypt(decryptOptions);
+  } catch (err) {
+    if (!_isLegacySelfSigError(err)) throw err;
+    result = await openpgp.decrypt({ ...decryptOptions, config: _buildLegacyKeyReadConfig() });
+  }
 
   // OpenPGP.js surfaces the Literal Data packet's filename on result.filename.
   // (message.packets[0].filename refers to the *encrypted* input packet, which
