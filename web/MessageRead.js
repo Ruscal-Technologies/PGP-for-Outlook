@@ -229,6 +229,40 @@ function extractArmorFromHtml(html) {
 }
 
 /**
+ * Strip informational armor headers from PGP MESSAGE blocks.
+ *
+ * RFC 4880 §6.2 allows any number of key-value header lines (Version:,
+ * Comment:, Charset:, MessageID:, etc.) between the -----BEGIN PGP MESSAGE-----
+ * line and the blank line that separates headers from the base64 payload.
+ * For encrypted messages these headers are purely informational and play no
+ * role in decryption.  However, email clients (notably Outlook Desktop) can
+ * mangle the header values — injecting non-ASCII characters, adding extra
+ * whitespace, or altering encoding — in ways that confuse OpenPGP.js's armor
+ * reader even after our character-level sanitization.
+ *
+ * This function removes all such headers, leaving only:
+ *   -----BEGIN PGP MESSAGE-----
+ *   [blank line]
+ *   [base64 payload + =checksum]
+ *   -----END PGP MESSAGE-----
+ *
+ * Only -----BEGIN PGP MESSAGE----- blocks are affected.  SIGNED MESSAGE blocks
+ * are intentionally left alone because their Hash: header tells the verifier
+ * which digest algorithm was used and is required for signature verification.
+ *
+ * Input must already have LF-only line endings (post-sanitizeArmoredText).
+ */
+function stripArmorHeaders(text) {
+  // Match: BEGIN line (\n-terminated), then zero-or-more non-blank lines
+  // (header key-value pairs), then the blank separator line.
+  // Replace the whole header section with just BEGIN + blank line.
+  return text.replace(
+    /(-----BEGIN PGP MESSAGE-----)\n(?:[^\n]+\n)*\n/g,
+    '$1\n\n'
+  );
+}
+
+/**
  * Extract the first complete PGP armor block from a body string.
  *
  * In reply threads the full body contains:
@@ -310,6 +344,7 @@ async function detectAndRenderBody() {
   // separators, etc.) so OpenPGP.js sees a single clean armor block.
   if (body && pgpType) {
     body = extractFirstArmorBlock(body);
+    body = stripArmorHeaders(body);
   }
 
   el('detection-loading').classList.add('pgp-hidden');
