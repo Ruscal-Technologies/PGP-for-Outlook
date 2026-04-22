@@ -779,16 +779,40 @@ function handleReplyEncrypted(replyAll) {
     }
   }
 
+  const formData = { htmlBody: quotedBody };
+  const onResult = r => {
+    if (r && r.status === Office.AsyncResultStatus.Failed) {
+      showStatus(`Could not open reply: ${escHtml(r.error.message)}`, 'error');
+    } else {
+      showStatus(
+        'Reply opened — click <strong>Encrypt</strong> in the ribbon to encrypt before sending.',
+        'info'
+      );
+    }
+  };
+
   try {
     if (replyAll) {
-      item.displayReplyAllForm(quotedBody);
+      if (typeof item.displayReplyAllFormAsync === 'function') {
+        item.displayReplyAllFormAsync(formData, onResult);
+      } else {
+        item.displayReplyAllForm(quotedBody);
+        showStatus(
+          'Reply opened — click <strong>Encrypt</strong> in the ribbon to encrypt before sending.',
+          'info'
+        );
+      }
     } else {
-      item.displayReplyForm(quotedBody);
+      if (typeof item.displayReplyFormAsync === 'function') {
+        item.displayReplyFormAsync(formData, onResult);
+      } else {
+        item.displayReplyForm(quotedBody);
+        showStatus(
+          'Reply opened — click <strong>Encrypt</strong> in the ribbon to encrypt before sending.',
+          'info'
+        );
+      }
     }
-    showStatus(
-      'Reply opened — click <strong>Encrypt</strong> in the ribbon to encrypt before sending.',
-      'info'
-    );
   } catch (e) {
     showStatus(`Could not open reply: ${escHtml(e.message)}`, 'error');
   }
