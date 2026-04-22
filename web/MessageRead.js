@@ -151,13 +151,24 @@ function sanitizeArmoredText(text) {
   // injects and that OpenPGP.js rejects as malformed armor.
   text = text.replace(/[\u200B-\u200F\uFEFF\u2028\u2029]/g, '');
 
-  // Normalise line endings to LF, then trim trailing whitespace per line.
+  // Normalise line endings to LF, then trim whitespace from both ends of each
+  // line.  PGP armor never has leading or trailing whitespace on any line, so
+  // trimming both ends is safe and removes indentation that Outlook Desktop
+  // classic sometimes adds to the HTML representation of the body.
   text = text
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .split('\n')
-    .map(line => line.trimEnd())
+    .map(line => line.trim())
     .join('\n');
+
+  // PGP armor is defined as ASCII-only (RFC 4880 §6).  Strip any remaining
+  // non-ASCII characters that Outlook Desktop classic's Word-based HTML renderer
+  // may have injected (e.g. typographic substitutions, Windows code-page
+  // artifacts) and that the targeted replacements above did not already convert.
+  // This is a catch-all safety net; the atob() call inside OpenPGP.js throws on
+  // any character that is not in [A-Za-z0-9+/=] and not ASCII whitespace.
+  text = text.replace(/[^\x00-\x7F]/g, '');
 
   return text;
 }
