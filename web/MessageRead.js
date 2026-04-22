@@ -779,7 +779,7 @@ function handleReplyEncrypted(replyAll) {
     }
   }
 
-  const formData = { htmlBody: quotedBody };
+  const formData = quotedBody ? { htmlBody: quotedBody } : {};
   const onResult = r => {
     if (r && r.status === Office.AsyncResultStatus.Failed) {
       showStatus(`Could not open reply: ${escHtml(r.error.message)}`, 'error');
