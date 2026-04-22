@@ -11,7 +11,7 @@
   ================================================================ -->
 
   <Id>4086c384-c2b3-4932-9b97-2b4d14c4821a</Id>
-  <Version>1.0.2.1</Version>
+  <Version>1.0.2.2</Version>
   <ProviderName>Ruscal Technologies</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="PGP Encryption" />
