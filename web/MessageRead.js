@@ -754,21 +754,37 @@ function handleReplyEncrypted(replyAll) {
   }
 
   // ── Desktop flow ──────────────────────────────────────────────────────────
-  const item = Office.context.mailbox.item;
-  let quotedBody = '';
+  const item    = Office.context.mailbox.item;
+  const myEmail = (Office.context.mailbox.userProfile?.emailAddress || '').toLowerCase();
 
+  // ── Subject ───────────────────────────────────────────────────────────────
+  const origSubject = item.subject || '';
+  const subject = /^re:\s/i.test(origSubject) ? origSubject : `Re: ${origSubject}`;
+
+  // ── Recipients ────────────────────────────────────────────────────────────
+  const toRecipients = [item.from?.emailAddress].filter(Boolean);
+
+  let ccRecipients = [];
+  if (replyAll) {
+    const allOthers = [...(item.to || []), ...(item.cc || [])];
+    ccRecipients = allOthers
+      .map(r => r.emailAddress)
+      .filter(addr => addr && addr.toLowerCase() !== myEmail);
+  }
+
+  // ── Quoted body ───────────────────────────────────────────────────────────
+  let htmlBody = '';
   if (_decryptedText) {
-    const senderName  = item.from?.displayName  || item.from?.emailAddress || '';
+    const senderName  = item.from?.displayName || item.from?.emailAddress || '';
     const quoteHeader = senderName
       ? `<br>--- Original message from ${escHtml(senderName)} ---<br>`
       : '<br>--- Original message ---<br>';
 
     if (_decryptedIsHtml) {
-      // Extract body innerHTML so we never embed a full HTML document inside
-      // the reply form's htmlBody fragment — Office rejects nested <html> tags.
+      // Extract body innerHTML — Office rejects nested <html> tags in htmlBody.
       const doc = new DOMParser().parseFromString(_decryptedText, 'text/html');
       const bodyContent = doc.body ? doc.body.innerHTML : _decryptedText;
-      quotedBody =
+      htmlBody =
         `<br><div style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` +
         quoteHeader + bodyContent + `</div>`;
     } else {
@@ -777,13 +793,14 @@ function handleReplyEncrypted(replyAll) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/\n/g, '<br>');
-      quotedBody =
+      htmlBody =
         `<br><blockquote style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` +
         quoteHeader + safe + `</blockquote>`;
     }
   }
 
-  const formData = quotedBody ? { htmlBody: quotedBody } : {};
+  const formData = { toRecipients, ccRecipients, subject, ...(htmlBody ? { htmlBody } : {}) };
+
   const onResult = r => {
     if (r && r.status === Office.AsyncResultStatus.Failed) {
       showStatus(`Could not open reply: ${escHtml(r.error.message)}`, 'error');
@@ -796,26 +813,15 @@ function handleReplyEncrypted(replyAll) {
   };
 
   try {
-    if (replyAll) {
-      if (typeof item.displayReplyAllFormAsync === 'function') {
-        item.displayReplyAllFormAsync(formData, onResult);
-      } else {
-        item.displayReplyAllForm(quotedBody);
-        showStatus(
-          'Reply opened — click <strong>Encrypt</strong> in the ribbon to encrypt before sending.',
-          'info'
-        );
-      }
+    const mailbox = Office.context.mailbox;
+    if (typeof mailbox.displayNewMessageFormAsync === 'function') {
+      mailbox.displayNewMessageFormAsync(formData, onResult);
     } else {
-      if (typeof item.displayReplyFormAsync === 'function') {
-        item.displayReplyFormAsync(formData, onResult);
-      } else {
-        item.displayReplyForm(quotedBody);
-        showStatus(
-          'Reply opened — click <strong>Encrypt</strong> in the ribbon to encrypt before sending.',
-          'info'
-        );
-      }
+      mailbox.displayNewMessageForm(formData);
+      showStatus(
+        'Reply opened — click <strong>Encrypt</strong> in the ribbon to encrypt before sending.',
+        'info'
+      );
     }
   } catch (e) {
     showStatus(`Could not open reply: ${escHtml(e.message)}`, 'error');
