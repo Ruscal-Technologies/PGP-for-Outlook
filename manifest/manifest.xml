@@ -118,23 +118,6 @@
                   </Action>
                 </Control>
 
-                <!-- Reply Encrypted button -->
-                <Control xsi:type="Button" id="msgReadReplyEncryptedButton">
-                  <Label resid="readReplyEncryptedButtonLabel" />
-                  <Supertip>
-                    <Title resid="readReplyEncryptedSuperTipTitle" />
-                    <Description resid="replyEncSuperTipDesc" />
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="iconEncrypt16" />
-                    <bt:Image size="32" resid="iconEncrypt32" />
-                    <bt:Image size="80" resid="iconEncrypt80" />
-                  </Icon>
-                  <Action xsi:type="ExecuteFunction">
-                    <FunctionName>replyEncrypted</FunctionName>
-                  </Action>
-                </Control>
-
                 <!-- Manage Keys button -->
                 <Control xsi:type="Button" id="msgReadKeysButton">
                   <Label resid="manageKeysButtonLabel" />
@@ -237,8 +220,6 @@
         <bt:String id="groupLabel"                   DefaultValue="PGP Encryption" />
         <bt:String id="readDecryptButtonLabel"           DefaultValue="Decrypt" />
         <bt:String id="readDecryptSuperTipTitle"         DefaultValue="Decrypt PGP Message" />
-        <bt:String id="readReplyEncryptedButtonLabel"    DefaultValue="Reply Encrypted" />
-        <bt:String id="readReplyEncryptedSuperTipTitle"  DefaultValue="Reply Encrypted" />
         <bt:String id="composeEncryptButtonLabel"    DefaultValue="Encrypt" />
         <bt:String id="composeEncryptSuperTipTitle"  DefaultValue="Encrypt PGP Message" />
         <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage Keys" />
@@ -248,8 +229,6 @@
       <bt:LongStrings>
         <bt:String id="readDecryptSuperTipDescription"
           DefaultValue="Open the PGP decryption pane to decrypt this message and verify its signature." />
-        <bt:String id="replyEncSuperTipDesc"
-          DefaultValue="Open a reply compose window for this message. Click Encrypt in the ribbon before sending to encrypt your reply." />
         <bt:String id="compEncryptSuperTipDescription"
           DefaultValue="Open the PGP encryption pane to encrypt this message before sending." />
         <bt:String id="manageKeysSuperTipDescription"
@@ -302,22 +281,6 @@
                     </Icon>
                     <Action xsi:type="ShowTaskpane">
                       <SourceLocation resid="messageReadTaskPaneUrl" />
-                    </Action>
-                  </Control>
-
-                  <Control xsi:type="Button" id="msgReadReplyEncryptedButton">
-                    <Label resid="readReplyEncryptedButtonLabel" />
-                    <Supertip>
-                      <Title resid="readReplyEncryptedSuperTipTitle" />
-                      <Description resid="replyEncSuperTipDesc" />
-                    </Supertip>
-                    <Icon>
-                      <bt:Image size="16" resid="iconEncrypt16" />
-                      <bt:Image size="32" resid="iconEncrypt32" />
-                      <bt:Image size="80" resid="iconEncrypt80" />
-                    </Icon>
-                    <Action xsi:type="ExecuteFunction">
-                      <FunctionName>replyEncrypted</FunctionName>
                     </Action>
                   </Control>
 
@@ -469,8 +432,6 @@
           <bt:String id="groupLabel"                   DefaultValue="PGP Encryption" />
           <bt:String id="readDecryptButtonLabel"           DefaultValue="Decrypt" />
           <bt:String id="readDecryptSuperTipTitle"         DefaultValue="Decrypt PGP Message" />
-          <bt:String id="readReplyEncryptedButtonLabel"    DefaultValue="Reply Encrypted" />
-          <bt:String id="readReplyEncryptedSuperTipTitle"  DefaultValue="Reply Encrypted" />
           <bt:String id="composeEncryptButtonLabel"    DefaultValue="Encrypt" />
           <bt:String id="composeEncryptSuperTipTitle"  DefaultValue="Encrypt PGP Message" />
           <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage Keys" />
@@ -480,8 +441,6 @@
         <bt:LongStrings>
           <bt:String id="readDecryptSuperTipDescription"
             DefaultValue="Open the PGP decryption pane to decrypt this message and verify its signature." />
-          <bt:String id="replyEncSuperTipDesc"
-            DefaultValue="Open a reply compose window for this message. Click Encrypt in the ribbon before sending to encrypt your reply." />
           <bt:String id="compEncryptSuperTipDescription"
             DefaultValue="Open the PGP encryption pane to encrypt this message before sending." />
           <bt:String id="manageKeysSuperTipDescription"

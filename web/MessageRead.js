@@ -970,16 +970,14 @@ Office.onReady(async () => {
   if (_isMobile) {
     el('reply-desktop-hint').classList.add('pgp-hidden');
     el('reply-mobile-hint').classList.remove('pgp-hidden');
-  } else {
-    // On desktop and OWA the ribbon's "Reply Encrypted" button handles this;
-    // the in-pane reply section is only needed on mobile.
-    hideSection('section-reply');
   }
+  // section-reply is visible on all platforms (mobile hint/desktop hint swap above).
 
   // Wire reply buttons regardless of key state — the user may want to reply
   // encrypted even if they have no local key pair yet.
-  el('btn-reply-encrypted').addEventListener('click', () => handleReplyEncrypted(false));
-  el('btn-reply-all-encrypted').addEventListener('click', () => handleReplyEncrypted(true));
+  // Primary button: Reply All (quotes decrypted body); secondary: Reply to sender only.
+  el('btn-reply-encrypted').addEventListener('click', () => handleReplyEncrypted(true));
+  el('btn-reply-all-encrypted').addEventListener('click', () => handleReplyEncrypted(false));
 
   // Mobile inline compose buttons.
   el('btn-mobile-encrypt-send').addEventListener('click', handleMobileEncryptReply);
