@@ -21,11 +21,11 @@ software, plugins, or IT-managed infrastructure.
 | **Company / legal key** | Org-level key added to every encrypted message (configurable, optional or required) |
 | **Attachment encryption** | Each attachment encrypted individually to `filename.ext.pgp` |
 | **Inline image handling** | Detects inline (embedded) images before encryption and warns the user. On Outlook on the web, offers automatic conversion to regular file attachments. On Outlook desktop the Office API does not expose clipboard-pasted images, so the image is removed from the message body with guidance to re-attach manually. |
-| **Message decryption** | Detects and decrypts PGP-encrypted message bodies; works on desktop, OWA, and Outlook mobile |
+| **Message decryption** | Detects and decrypts PGP-encrypted message bodies; works on desktop, OWA, and Outlook mobile. Includes extra sanitization for Outlook Desktop's Word-based rendering engine (non-ASCII artifact stripping, armor header normalization) for broad compatibility with third-party PGP clients |
 | **Attachment decryption** | One-click decrypt and download for `.pgp` attachments |
 | **Signature verification** | Verifies inline signatures against the local keyring or WKD |
 | **Signed-only messages** | Displays and verifies PGP cleartext-signed messages |
-| **Mobile encrypted reply** | On iOS/Android (where compose add-ins are unavailable), encrypts the reply in-pane and copies the armor to the clipboard for pasting into a normal Outlook reply |
+| **Encrypted reply** | After decrypting, the **Encrypted Reply** section in the read task pane opens a new compose window pre-filled with recipients (To/CC), subject (`Re: …`), and the decrypted content quoted with sender attribution and timestamp — on desktop and OWA. On iOS/Android, an in-pane workaround encrypts the reply and copies the armor to the clipboard for pasting into a normal Outlook reply |
 | **Session key cache** | Unlocked private key cached in memory for 15 minutes; passphrase is never stored |
 
 ---
@@ -54,10 +54,10 @@ quick reference; the subsections that follow explain the important caveats.
 
 | Platform | Compose & Encrypt | Decrypt | Encrypted Reply | Attachment Encryption | Inline Image Conversion |
 |---|---|---|---|---|---|
-| **Outlook on the Web (OWA)** | ✓ | ✓ | ✓ | ✓ | ✓ automatic |
-| **Outlook Desktop — Win32 (Microsoft 365)** | ✓ | ✓ | ✓ | ✓ | ✗ manual only |
-| **Outlook Desktop — Win32 (perpetual 2019+)** | ✓ body only¹ | ✓ | ✓ | ✗ | ✗ |
-| **Outlook for Mac (Microsoft 365)** | ✓ | ✓ | ✓ | ✓ | ✗ manual only |
+| **Outlook on the Web (OWA)** | ✓ | ✓ | ✓ task-pane new compose | ✓ | ✓ automatic |
+| **Outlook Desktop — Win32 (Microsoft 365)** | ✓ | ✓ | ✓ task-pane new compose | ✓ | ✗ manual only |
+| **Outlook Desktop — Win32 (perpetual 2019+)** | ✓ body only¹ | ✓ | ✓ task-pane new compose | ✗ | ✗ |
+| **Outlook for Mac (Microsoft 365)** | ✓ | ✓ | ✓ task-pane new compose | ✓ | ✗ manual only |
 | **Outlook on iOS** | ✗ | ✓ | ✓ in-pane workaround | — | — |
 | **Outlook on Android** | ✗ | ✓ | ✓ in-pane workaround | — | — |
 
@@ -93,10 +93,16 @@ Nearly full feature set, with one notable limitation:
 - Images inserted through *Insert → Pictures* are standard file attachments and
   are encrypted normally along with the rest of the attachments.
 - The add-in's HTML body-extraction logic applies extra sanitization for the
-  Word-based rendering engine that Outlook Desktop uses internally.  You should
-  not notice any difference, but it is why encrypted messages from some third-party
-  PGP clients may decrypt correctly here even if they produce slightly non-standard
-  armor formatting.
+  Word-based rendering engine that Outlook Desktop uses internally — stripping
+  non-ASCII artifacts, normalizing armor headers, and excluding injected `<style>`
+  content.  This improves compatibility with third-party PGP clients that produce
+  slightly non-standard armor formatting.
+- **Encrypted reply** — after decrypting a message, the **Encrypted Reply** section
+  at the top of the task pane provides **Reply All** and **Reply Sender** buttons.
+  These open a *new* compose window (not a standard reply) pre-filled with the
+  correct recipients, a `Re:` subject, and the decrypted content quoted with
+  sender attribution and the original send time.  Click **Encrypt** in the ribbon
+  before sending to encrypt your reply.
 
 ---
 
@@ -127,11 +133,12 @@ therefore cannot open a task pane when you tap *New Message* or *Reply*.
 Because there is no compose pane on mobile, the add-in provides an in-pane
 workaround in the read task pane:
 
-1. After decrypting an incoming message, scroll to **Compose Encrypted Reply**.
-2. Type your reply.  A plain-text quote of the decrypted original is pre-filled
-   for context.
+1. After decrypting an incoming message, tap **↩ Reply All** (or **Reply Sender**)
+   in the **Encrypted Reply** section at the top of the task pane.
+2. The in-pane compose area opens with a plain-text quote of the decrypted
+   original pre-filled for context.  Type your reply above it.
 3. Tap **Encrypt Reply** — the armor is placed in the text area and automatically
-   copied to the clipboard.
+   copied to the clipboard (supported on both iOS and Android).
 4. Start a normal Outlook reply, clear the body, and paste.
 
 The encrypted reply is always unsigned when triggered this way unless you had
@@ -482,6 +489,19 @@ roaming settings and takes precedence over any well-known URL.
 1. Open the encrypted message and click **Decrypt** in the ribbon.
 2. Enter your passphrase — the decrypted content appears in the task pane.
 3. For `.pgp` attachments, click **Decrypt & Download** next to each file.
+
+### Replying encrypted
+
+After decrypting, the **Encrypted Reply** section appears at the top of the
+task pane (above the decrypted content):
+
+- **Reply All** — opens a new compose window addressed to the sender and all
+  other original recipients, with a `Re:` subject and the decrypted message
+  quoted (including sender name and original send time).
+- **Reply Sender** — same, but addressed to the sender only.
+
+On desktop/OWA, click **Encrypt** in the ribbon before sending.  On mobile,
+use the in-pane compose area that opens when you tap either button.
 
 ---
 
