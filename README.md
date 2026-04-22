@@ -45,6 +45,121 @@ software, plugins, or IT-managed infrastructure.
 
 ---
 
+## Platform notes
+
+Support is not uniform across every Outlook surface.  The table below is a
+quick reference; the subsections that follow explain the important caveats.
+
+### Compatibility matrix
+
+| Platform | Compose & Encrypt | Decrypt | Encrypted Reply | Attachment Encryption | Inline Image Conversion |
+|---|---|---|---|---|---|
+| **Outlook on the Web (OWA)** | ✓ | ✓ | ✓ | ✓ | ✓ automatic |
+| **Outlook Desktop — Win32 (Microsoft 365)** | ✓ | ✓ | ✓ | ✓ | ✗ manual only |
+| **Outlook Desktop — Win32 (perpetual 2019+)** | ✓ body only¹ | ✓ | ✓ | ✗ | ✗ |
+| **Outlook for Mac (Microsoft 365)** | ✓ | ✓ | ✓ | ✓ | ✗ manual only |
+| **Outlook on iOS** | ✗ | ✓ | ✓ in-pane workaround | — | — |
+| **Outlook on Android** | ✗ | ✓ | ✓ in-pane workaround | — | — |
+
+> ¹ Compose-side **attachment** encryption requires Mailbox API 1.8, which is only
+> available in Microsoft 365 subscriptions.  Message body encryption works on all
+> perpetual versions that support add-ins (Outlook 2016+).
+
+---
+
+### Outlook on the Web (OWA)
+
+Full feature set.  OWA is the reference platform for this add-in:
+
+- Compose, encrypt, and sign outgoing messages with full ribbon integration.
+- Pasted inline images (clipboard images embedded in the body) are exposed by the
+  Office API, so the add-in can offer to **convert them automatically** to regular
+  file attachments before encrypting.
+- Decryption, signature verification, and attachment decryption all work as expected.
+
+---
+
+### Outlook Desktop — Windows (classic Win32)
+
+Nearly full feature set, with one notable limitation:
+
+- **Inline images pasted from the clipboard** (as opposed to images inserted via
+  *Insert → Pictures*) are not exposed through the Office attachment API in the
+  Win32 host.  The add-in detects the broken `cid:` URI in the message body and
+  warns you, but cannot read or re-attach the image programmatically.
+  **Workaround:** before encrypting, right-click the image, save it to disk,
+  delete it from the message body, and re-insert it using *Insert → Attach File*
+  so it appears as a regular file attachment.
+- Images inserted through *Insert → Pictures* are standard file attachments and
+  are encrypted normally along with the rest of the attachments.
+- The add-in's HTML body-extraction logic applies extra sanitization for the
+  Word-based rendering engine that Outlook Desktop uses internally.  You should
+  not notice any difference, but it is why encrypted messages from some third-party
+  PGP clients may decrypt correctly here even if they produce slightly non-standard
+  armor formatting.
+
+---
+
+### Outlook for Mac
+
+Behaves the same as Outlook Desktop on Windows for all practical purposes.  The
+inline image limitation applies equally: clipboard-pasted images are not
+accessible via the Office API and must be removed and re-attached as files before
+encrypting.
+
+---
+
+### Outlook on iOS and Android
+
+Microsoft does not support compose-mode add-ins on Outlook mobile.  The add-in
+therefore cannot open a task pane when you tap *New Message* or *Reply*.
+
+**What works on mobile:**
+
+- **Decryption** — open an encrypted message, tap the add-in button, and the
+  read pane decrypts and displays the message normally.
+- **Signature verification** — works as on desktop.
+- **`.pgp` attachment decryption** — tap *Decrypt & Download* for each encrypted
+  attachment.
+
+**Encrypted replies on mobile:**
+
+Because there is no compose pane on mobile, the add-in provides an in-pane
+workaround in the read task pane:
+
+1. After decrypting an incoming message, scroll to **Compose Encrypted Reply**.
+2. Type your reply.  A plain-text quote of the decrypted original is pre-filled
+   for context.
+3. Tap **Encrypt Reply** — the armor is placed in the text area and automatically
+   copied to the clipboard.
+4. Start a normal Outlook reply, clear the body, and paste.
+
+The encrypted reply is always unsigned when triggered this way unless you had
+already unlocked your key (by decrypting the incoming message first) and have
+signing on by default.
+
+**Things that do not work on mobile:**
+
+- You cannot encrypt a *new* outgoing message from mobile — you must draft and
+  encrypt it from a desktop or web client.
+- The pop-out decrypted-content window (`Open in full window` button) requires
+  `window.open()`, which mobile WebViews block.  The decrypted content is still
+  readable in the task pane itself.
+- Attachment decryption produces a download, but mobile browsers may handle the
+  resulting file differently depending on the app and OS file associations.
+
+---
+
+### Outlook 2019 / 2021 (perpetual license)
+
+The add-in loads and the read pane works fully.  On the compose side, message
+body encryption works, but **attachment encryption is unavailable** because
+`getAttachmentContentAsync` and `addFileAttachmentFromBase64Async` require
+Mailbox API 1.8, which Microsoft 365 subscription builds provide but perpetual
+builds do not.
+
+---
+
 ## Project structure
 
 ```
