@@ -764,9 +764,13 @@ function handleReplyEncrypted(replyAll) {
       : '<br>--- Original message ---<br>';
 
     if (_decryptedIsHtml) {
+      // Extract body innerHTML so we never embed a full HTML document inside
+      // the reply form's htmlBody fragment — Office rejects nested <html> tags.
+      const doc = new DOMParser().parseFromString(_decryptedText, 'text/html');
+      const bodyContent = doc.body ? doc.body.innerHTML : _decryptedText;
       quotedBody =
         `<br><div style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` +
-        quoteHeader + _decryptedText + `</div>`;
+        quoteHeader + bodyContent + `</div>`;
     } else {
       const safe = _decryptedText
         .replace(/&/g, '&amp;')
