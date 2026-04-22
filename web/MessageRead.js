@@ -776,9 +776,12 @@ function handleReplyEncrypted(replyAll) {
   let htmlBody = '';
   if (_decryptedText) {
     const senderName  = item.from?.displayName || item.from?.emailAddress || '';
-    const quoteHeader = senderName
-      ? `<br>--- Original message from ${escHtml(senderName)} ---<br>`
-      : '<br>--- Original message ---<br>';
+    const sentDate    = item.dateTimeCreated
+      ? item.dateTimeCreated.toLocaleString(undefined, {
+          dateStyle: 'medium', timeStyle: 'short',
+        })
+      : '';
+    const quoteHeader = `<br>--- Original message${senderName ? ` from ${escHtml(senderName)}` : ''}${sentDate ? ` on ${escHtml(sentDate)}` : ''} ---<br>`;
 
     if (_decryptedIsHtml) {
       // Extract body innerHTML — Office rejects nested <html> tags in htmlBody.
@@ -1016,13 +1019,31 @@ Office.onReady(async () => {
   // Mobile inline compose buttons.
   el('btn-mobile-encrypt-send').addEventListener('click', handleMobileEncryptReply);
   el('btn-mobile-copy-armor').addEventListener('click', async () => {
-    const armor = el('mobile-compose-body').value;
-    try {
-      await navigator.clipboard.writeText(armor);
+    const textarea = el('mobile-compose-body');
+    const armor = textarea.value;
+    let copied = false;
+
+    // Modern Clipboard API (Android, desktop).
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(armor);
+        copied = true;
+      } catch { /* fall through */ }
+    }
+
+    // iOS fallback: select the textarea content and use execCommand.
+    // Must be synchronous and triggered directly by the user gesture.
+    if (!copied) {
+      try {
+        textarea.setSelectionRange(0, armor.length);
+        textarea.focus();
+        copied = document.execCommand('copy');
+      } catch { /* execCommand also unavailable */ }
+    }
+
+    if (copied) {
       el('btn-mobile-copy-armor').textContent = 'Copied!';
       setTimeout(() => { el('btn-mobile-copy-armor').textContent = 'Copy'; }, 2000);
-    } catch {
-      // Clipboard API blocked — user must long-press the textarea to copy manually.
     }
   });
   el('btn-mobile-compose-cancel').addEventListener('click', () => {
