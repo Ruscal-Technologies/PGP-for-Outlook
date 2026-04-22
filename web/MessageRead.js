@@ -201,10 +201,18 @@ function extractArmorFromHtml(html) {
     'article', 'section', 'header', 'footer', 'html', 'body',
   ]);
 
+  // Elements whose text content must never be extracted.  When Outlook Desktop
+  // returns a full HTML document from getBodyAsync(Html), the browser's fragment
+  // parser places <head> children (<style>, <title>, <meta>) as siblings of the
+  // body content inside our temporary <div>.  Without this skip list, walk()
+  // would include raw CSS and document title text in the extracted string.
+  const SKIP = new Set(['style', 'script', 'head', 'title', 'noscript']);
+
   function walk(node) {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent;
     if (node.nodeType !== Node.ELEMENT_NODE) return '';
     const tag = node.tagName.toLowerCase();
+    if (SKIP.has(tag)) return '';
     if (tag === 'br') return '\n';
     if (tag === 'pre') {
       // textContent is CSS-independent: gives the raw text with original \n
@@ -640,7 +648,10 @@ function renderPgpAttachments() {
       }
 
       const contentResult = await getAttachmentContentAsync(item, attachmentId);
-      const armoredMessage = atob(contentResult.content);
+      // Strip any non-ASCII characters before decoding — Office.js should return
+      // clean RFC 4648 base64, but some Outlook Desktop builds append whitespace
+      // or platform-specific characters to the attachment content string.
+      const armoredMessage = atob(contentResult.content.replace(/[^\x00-\x7F]/g, ''));
 
       const { data: decryptedBytes, filename } = await decryptAttachment(armoredMessage, privateKey);
 
