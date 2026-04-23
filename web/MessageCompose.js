@@ -727,10 +727,13 @@ async function encryptAttachments(encryptionKeys, signingKey) {
       );
     }
 
-    // Encrypt
+    // Encrypt — use the corrected base name (e.g. "subject.eml") as the
+    // filename stored in the PGP literal data packet so the decryptor
+    // recovers the right extension, not a browser-guessed one.
+    const plainName = encryptedName.replace(/\.pgp$/i, '');
     const armoredEncrypted = await encryptAttachment(
       rawBytes,
-      att.name,
+      plainName,
       encryptionKeys,
       signingKey
     );
