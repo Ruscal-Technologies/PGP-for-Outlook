@@ -50,18 +50,7 @@
             "page": "https://pgp-outlook.ruscaltech.com/Functions/FunctionFile.html"
           },
           "lifetime": "short",
-          "actions": [
-            {
-              "id": "ReplyEncrypted",
-              "type": "executeFunction",
-              "displayName": "Reply Encrypted"
-            },
-            {
-              "id": "ReplyAllEncrypted",
-              "type": "executeFunction",
-              "displayName": "Reply All Encrypted"
-            }
-          ]
+          "actions": []
         },
         {
           "id": "ReadTaskPane",
@@ -139,21 +128,6 @@
                         "description": "Open the PGP decryption pane to decrypt this message and verify its signature."
                       },
                       "actionId": "ShowReadPane"
-                    },
-                    {
-                      "id": "ReadReplyEncryptedButton",
-                      "type": "button",
-                      "label": "Reply Encrypted",
-                      "icons": [
-                        { "size": 16, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncrypt16.png" },
-                        { "size": 32, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncrypt32.png" },
-                        { "size": 80, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncrypt80.png" }
-                      ],
-                      "supertip": {
-                        "title": "Reply Encrypted",
-                        "description": "Open a reply compose window for this message. Click Encrypt in the ribbon before sending to encrypt your reply."
-                      },
-                      "actionId": "ReplyEncrypted"
                     },
                     {
                       "id": "ReadKeysButton",
