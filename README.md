@@ -19,7 +19,7 @@ software, plugins, or IT-managed infrastructure.
 | **Message signing** | Optionally signs outgoing messages so recipients can verify authorship; off by default, configurable per-user and per-message |
 | **Encrypt to self** | Your own public key is always included so you can read your Sent items |
 | **Company / legal key** | Org-level key added to every encrypted message (configurable, optional or required) |
-| **Attachment encryption** | Each attachment encrypted individually to `filename.ext.pgp`. Supports regular files, dragged email items (`.msg`), and calendar items (`.ics`). Cloud/linked attachments (OneDrive, SharePoint) must be downloaded to device first |
+| **Attachment encryption** | Each attachment encrypted individually to `filename.ext.pgp`. Supports regular files, dragged email items (encrypted as `subject.eml.pgp`, decrypts to a standard `.eml` file), and calendar items (`subject.ics.pgp`). Cloud/linked attachments (OneDrive, SharePoint) must be downloaded to device first |
 | **Inline image handling** | Detects inline (embedded) images before encryption and warns the user. On Outlook on the web, offers automatic conversion to regular file attachments. On Outlook desktop the Office API does not expose clipboard-pasted images, so the image is removed from the message body with guidance to re-attach manually. |
 | **Message decryption** | Detects and decrypts PGP-encrypted message bodies; works on desktop, OWA, and Outlook mobile. Includes extra sanitization for Outlook Desktop's Word-based rendering engine (non-ASCII artifact stripping, armor header normalization) for broad compatibility with third-party PGP clients |
 | **Attachment decryption** | One-click decrypt and download for `.pgp` attachments |

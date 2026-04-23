@@ -706,14 +706,20 @@ async function encryptAttachments(encryptionKeys, signingKey) {
     // (raw MIME text); calendar items are ICalendar (raw iCal text).
     // Cloud/URL attachments cannot be read as bytes through this API.
     let rawBytes;
+    let encryptedName;
     const fmt = contentResult.format;
     if (fmt === Office.MailboxEnums.AttachmentContentFormat.Base64) {
       rawBytes = base64ToUint8Array(contentResult.content.replace(/[^\x00-\x7F]/g, ''));
-    } else if (
-      fmt === Office.MailboxEnums.AttachmentContentFormat.Eml ||
-      fmt === Office.MailboxEnums.AttachmentContentFormat.ICalendar
-    ) {
+      encryptedName = att.name + '.pgp';
+    } else if (fmt === Office.MailboxEnums.AttachmentContentFormat.Eml) {
       rawBytes = new TextEncoder().encode(contentResult.content);
+      // Ensure the decrypted file opens as .eml (email items have no extension in Outlook)
+      const baseName = att.name.toLowerCase().endsWith('.eml') ? att.name : att.name + '.eml';
+      encryptedName = baseName + '.pgp';
+    } else if (fmt === Office.MailboxEnums.AttachmentContentFormat.ICalendar) {
+      rawBytes = new TextEncoder().encode(contentResult.content);
+      const baseName = att.name.toLowerCase().endsWith('.ics') ? att.name : att.name + '.ics';
+      encryptedName = baseName + '.pgp';
     } else {
       throw new Error(
         `Cannot encrypt "${att.name}": it is a cloud/linked attachment. ` +
@@ -734,7 +740,7 @@ async function encryptAttachments(encryptionKeys, signingKey) {
 
     // Add the encrypted version
     const encryptedBase64 = btoa(armoredEncrypted);
-    await addAttachmentFromBase64Async(item, encryptedBase64, att.name + '.pgp');
+    await addAttachmentFromBase64Async(item, encryptedBase64, encryptedName);
   }
 
   // Refresh attachment list display
