@@ -700,7 +700,26 @@ async function encryptAttachments(encryptionKeys, signingKey) {
   for (const att of _attachments) {
     // Read attachment content (requires Mailbox 1.8)
     const contentResult = await getAttachmentContentAsync(item, att.id);
-    const rawBytes = base64ToUint8Array(contentResult.content);
+
+    // getAttachmentContentAsync returns different formats depending on the
+    // attachment type.  Regular files are Base64; dragged email items are Eml
+    // (raw MIME text); calendar items are ICalendar (raw iCal text).
+    // Cloud/URL attachments cannot be read as bytes through this API.
+    let rawBytes;
+    const fmt = contentResult.format;
+    if (fmt === Office.MailboxEnums.AttachmentContentFormat.Base64) {
+      rawBytes = base64ToUint8Array(contentResult.content.replace(/[^\x00-\x7F]/g, ''));
+    } else if (
+      fmt === Office.MailboxEnums.AttachmentContentFormat.Eml ||
+      fmt === Office.MailboxEnums.AttachmentContentFormat.ICalendar
+    ) {
+      rawBytes = new TextEncoder().encode(contentResult.content);
+    } else {
+      throw new Error(
+        `Cannot encrypt "${att.name}": it is a cloud/linked attachment. ` +
+        `Download it to your device and re-attach the file before encrypting.`
+      );
+    }
 
     // Encrypt
     const armoredEncrypted = await encryptAttachment(
