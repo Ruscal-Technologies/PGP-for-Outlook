@@ -366,6 +366,7 @@ async function detectAndRenderBody() {
     </div>`;
     showSection('section-decrypt');
     el('btn-decrypt').addEventListener('click', () => handleDecryptBody(body));
+    handleDecryptBody(body); // auto-start: warm session is instant; cold session shows passphrase modal
   }
 
   if (pgpType === 'signed') {

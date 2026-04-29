@@ -310,7 +310,10 @@ function loadAttachments() {
 function updateEncryptButton() {
   const allHaveKeys = _recipientResults.length > 0 &&
     _recipientResults.every(r => !!r.key);
-  el('btn-encrypt').disabled = !allHaveKeys || !hasKeyPair();
+  const ready = allHaveKeys && hasKeyPair();
+  const wasDisabled = el('btn-encrypt').disabled;
+  el('btn-encrypt').disabled = !ready;
+  if (ready && wasDisabled) el('btn-encrypt').focus(); // only on disabled→enabled transition
 }
 
 // ── Passphrase modal ──────────────────────────────────────────────────────────
