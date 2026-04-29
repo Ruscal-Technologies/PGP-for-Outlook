@@ -489,6 +489,27 @@ export async function decryptMessage(armoredMessage, decryptionKey, verification
   return { data: result.data, signatureResult };
 }
 
+/**
+ * Verify a PGP cleartext (inline-signed) message.
+ *
+ * Centralises all openpgp.readCleartextMessage + openpgp.verify calls so that
+ * the legacy-key retry logic (SHA-1 self-signatures on old DSA keys) is applied
+ * consistently. MessageRead.js delegates here instead of calling openpgp directly.
+ *
+ * @param {string}        armoredCleartextMessage - The raw PGP SIGNED MESSAGE block
+ * @param {openpgp.Key[]} verificationKeys
+ * @returns {Promise<openpgp.VerifyMessageResult>}
+ */
+export async function verifyCleartextMessage(armoredCleartextMessage, verificationKeys) {
+  const cleartextMessage = await openpgp.readCleartextMessage({ cleartextMessage: armoredCleartextMessage });
+  try {
+    return await openpgp.verify({ message: cleartextMessage, verificationKeys });
+  } catch (err) {
+    if (!_isLegacySelfSigError(err)) throw err;
+    return await openpgp.verify({ message: cleartextMessage, verificationKeys, config: _buildLegacyKeyReadConfig() });
+  }
+}
+
 // ── Attachment encryption / decryption ───────────────────────────────────────
 
 /**

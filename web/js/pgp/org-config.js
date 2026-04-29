@@ -75,7 +75,16 @@ export async function loadOrgConfig(userEmail) {
         });
         if (response.ok) {
           const json = await response.json();
-          _cachedConfig = { ...DEFAULT_CONFIG, ...json };
+          // Validate field types before merging — the server (or a network
+          // attacker on a downgraded connection) could supply unexpected types
+          // that would crash consumers (e.g. a string where an array is expected).
+          _cachedConfig = {
+            ...DEFAULT_CONFIG,
+            ...(typeof json.companyKeyEnabled  === 'boolean' && { companyKeyEnabled:  json.companyKeyEnabled  }),
+            ...(typeof json.companyKeyRequired === 'boolean' && { companyKeyRequired: json.companyKeyRequired }),
+            ...(Array.isArray(json.companyKeyEmails)          && { companyKeyEmails:   json.companyKeyEmails   }),
+            ...(typeof json.hideSupportButton  === 'boolean' && { hideSupportButton:  json.hideSupportButton  }),
+          };
           return _cachedConfig;
         }
       } catch (e) {

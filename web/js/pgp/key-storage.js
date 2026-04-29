@@ -83,6 +83,20 @@ export function getKeyMetadata() {
 }
 
 export async function saveKeyPair(armoredPrivateKey, armoredPublicKey, metadata) {
+  // Replacing the key pair subtracts the old sizes before adding the new ones.
+  const currentKeySize = (settings().get(KEYS.PRIVATE) || '').length
+                       + (settings().get(KEYS.PUBLIC)  || '').length
+                       + JSON.stringify(settings().get(KEYS.META) || {}).length;
+  const newKeySize = armoredPrivateKey.length
+                   + armoredPublicKey.length
+                   + JSON.stringify(metadata).length;
+  const projectedUsage = estimateStorageUsage() - currentKeySize + newKeySize;
+  if (projectedUsage > STORAGE_LIMIT_BYTES) {
+    throw new Error(
+      `Storage limit would be exceeded (${Math.round(projectedUsage / 1024)}KB / 32KB). ` +
+      'Remove some contact keys and try again.'
+    );
+  }
   settings().set(KEYS.PRIVATE, armoredPrivateKey);
   settings().set(KEYS.PUBLIC, armoredPublicKey);
   settings().set(KEYS.META, metadata);

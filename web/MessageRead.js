@@ -10,14 +10,13 @@
  *  - List .pgp attachments and allow individual decryption + download
  */
 
-import * as openpgp from './js/openpgp.min.mjs';
 import {
   unlockPrivateKey,
-  decryptMessage, decryptAttachment,
+  decryptMessage, decryptAttachment, verifyCleartextMessage,
   detectPgpContent,
   encryptMessage, readPublicKey,
 } from './js/pgp/pgp-core.js';
-import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault } from './js/pgp/key-storage.js';
+import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault, getKeyMetadata } from './js/pgp/key-storage.js';
 import { getContactKeyObject } from './js/pgp/keyring.js';
 import { discoverKey, KeyStatus } from './js/pgp/key-discovery.js';
 import {
@@ -53,7 +52,18 @@ function hideSection(id) { el(id).classList.add('pgp-hidden'); }
 function showStatus(message, type = 'info') {
   const bar = el('status-bar');
   bar.className = `pgp-alert pgp-alert--${type}`;
-  bar.innerHTML = message;
+  bar.textContent = message;
+  bar.classList.remove('pgp-hidden');
+}
+
+function showStatusReplyOpened() {
+  const bar = el('status-bar');
+  bar.className = 'pgp-alert pgp-alert--info';
+  bar.textContent = 'Reply opened — click ';
+  const strong = document.createElement('strong');
+  strong.textContent = 'Encrypt';
+  bar.appendChild(strong);
+  bar.appendChild(document.createTextNode(' in the ribbon to encrypt before sending.'));
   bar.classList.remove('pgp-hidden');
 }
 
@@ -365,7 +375,7 @@ async function detectAndRenderBody() {
       <strong>Encrypted message</strong> — PGP-encrypted content detected.
     </div>`;
     showSection('section-decrypt');
-    el('btn-decrypt').addEventListener('click', () => handleDecryptBody(body));
+    el('btn-decrypt').addEventListener('click', () => handleDecryptBody(body), { once: true });
     handleDecryptBody(body); // auto-start: warm session is instant; cold session shows passphrase modal
   }
 
@@ -413,7 +423,8 @@ async function handleDecryptBody(encryptedBody) {
 
       // Cache for 15 minutes of inactivity.
       const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
-      cacheSessionKey(privateKey, userEmail, '');
+      const meta = getKeyMetadata();
+      cacheSessionKey(privateKey, userEmail, meta?.keyId?.slice(-8) || '');
       updateSessionStatus();
     }
 
@@ -434,7 +445,7 @@ async function handleDecryptBody(encryptedBody) {
     } else if (e.message?.includes('Error decrypting') || e.message?.includes('Decryption error')) {
       showStatus('Decryption failed — wrong passphrase or key?', 'error');
     } else {
-      showStatus(`Decryption failed: ${escHtml(e.message)}`, 'error');
+      showStatus(`Decryption failed: ${e.message}`, 'error');
     }
   } finally {
     btn.disabled = false;
@@ -602,9 +613,7 @@ async function handleVerifySignedBody(signedBody) {
       return;
     }
 
-    // Use openpgp.js directly for clearsigned message verification
-    const cleartextMessage = await openpgp.readCleartextMessage({ cleartextMessage: signedBody });
-    const verifyResult = await openpgp.verify({ message: cleartextMessage, verificationKeys });
+    const verifyResult = await verifyCleartextMessage(signedBody, verificationKeys);
     const sig = verifyResult.signatures[0];
 
     try {
@@ -679,7 +688,8 @@ function renderPgpAttachments() {
         const passphrase = await promptPassphrase(`Enter your passphrase to decrypt ${attachmentName}.`);
         privateKey = await unlockPrivateKey(getPrivateKey(), passphrase);
         const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
-        cacheSessionKey(privateKey, userEmail, '');
+        const meta = getKeyMetadata();
+        cacheSessionKey(privateKey, userEmail, meta?.keyId?.slice(-8) || '');
         updateSessionStatus();
       }
 
@@ -697,7 +707,7 @@ function renderPgpAttachments() {
 
     } catch (e) {
       if (e.message !== 'Cancelled.') {
-        showStatus(`Could not decrypt ${attachmentName}: ${escHtml(e.message)}`, 'error');
+        showStatus(`Could not decrypt ${attachmentName}: ${e.message}`, 'error');
       }
     } finally {
       btn.disabled = false;
@@ -807,12 +817,9 @@ function handleReplyEncrypted(replyAll) {
 
   const onResult = r => {
     if (r && r.status === Office.AsyncResultStatus.Failed) {
-      showStatus(`Could not open reply: ${escHtml(r.error.message)}`, 'error');
+      showStatus(`Could not open reply: ${r.error.message}`, 'error');
     } else {
-      showStatus(
-        'Reply opened — click <strong>Encrypt</strong> in the ribbon to encrypt before sending.',
-        'info'
-      );
+      showStatusReplyOpened();
     }
   };
 
@@ -822,13 +829,10 @@ function handleReplyEncrypted(replyAll) {
       mailbox.displayNewMessageFormAsync(formData, onResult);
     } else {
       mailbox.displayNewMessageForm(formData);
-      showStatus(
-        'Reply opened — click <strong>Encrypt</strong> in the ribbon to encrypt before sending.',
-        'info'
-      );
+      showStatusReplyOpened();
     }
   } catch (e) {
-    showStatus(`Could not open reply: ${escHtml(e.message)}`, 'error');
+    showStatus(`Could not open reply: ${e.message}`, 'error');
   }
 }
 
