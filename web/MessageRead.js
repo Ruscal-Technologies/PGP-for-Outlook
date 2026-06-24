@@ -263,13 +263,33 @@ function extractArmorFromHtml(html) {
  * Input must already have LF-only line endings (post-sanitizeArmoredText).
  */
 function stripArmorHeaders(text) {
-  // Match: BEGIN line (\n-terminated), then zero-or-more non-blank lines
-  // (header key-value pairs), then the blank separator line.
-  // Replace the whole header section with just BEGIN + blank line.
-  return text.replace(
-    /(-----BEGIN PGP MESSAGE-----)\n(?:[^\n]+\n)*\n/g,
-    '$1\n\n'
-  );
+  // Process line-by-line rather than with a regex so we handle all edge
+  // cases: missing blank separator, blank lines interspersed between
+  // header lines (produced when sanitizeArmoredText trims a whitespace-only
+  // header value to empty), or any other structural variation a third-party
+  // client may produce.
+  //
+  // RFC 4880 §6.2 header lines always contain ':' (key-value format).
+  // Base64 characters are [A-Za-z0-9+/=] — none of which is ':' — so
+  // testing for ':' reliably distinguishes header lines from body lines.
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i] === '-----BEGIN PGP MESSAGE-----') {
+      out.push(lines[i]);
+      i++;
+      // Skip header lines (contain ':') and blank lines that follow BEGIN.
+      while (i < lines.length && (lines[i] === '' || lines[i].includes(':'))) {
+        i++;
+      }
+      out.push(''); // blank separator before base64 payload
+    } else {
+      out.push(lines[i]);
+      i++;
+    }
+  }
+  return out.join('\n');
 }
 
 /**
