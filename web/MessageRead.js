@@ -33,6 +33,20 @@ let _decryptedIsHtml = false;
 /** True when running inside Outlook on iOS or Android. */
 let _isMobile = false;
 
+/**
+ * True when the host meets Mailbox 1.7 (Outlook 2021+).
+ * Required for item.from (sender email/name in read mode).
+ * @type {boolean}
+ */
+let _has17 = false;
+
+/**
+ * True when the host meets Mailbox 1.8 (Outlook 2021+ / Microsoft 365 / OWA).
+ * Required for getAttachmentContentAsync (attachment decryption).
+ * @type {boolean}
+ */
+let _has18 = false;
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -490,6 +504,9 @@ function renderDecryptedBody(text, signatureResult, senderEmail) {
     if (senderEmail) {
       sigDetails.textContent = `Signed by ${senderEmail} · Key ID: ${signatureResult.signedByKeyId || 'unknown'}`;
       sigDetails.classList.remove('pgp-hidden');
+    } else if (!_has17) {
+      sigDetails.textContent = 'Sender information unavailable on this Outlook version — upgrade to Outlook 2021 to see who signed this message.';
+      sigDetails.classList.remove('pgp-hidden');
     }
   } else {
     sigBadge.innerHTML = `<span class="pgp-badge pgp-badge--error">✗ Invalid signature</span>`;
@@ -626,10 +643,11 @@ async function handleVerifySignedBody(signedBody) {
     const verificationKeys = await resolveVerificationKeys(senderEmail);
 
     if (verificationKeys.length === 0) {
-      statusEl.innerHTML = `<div class="pgp-alert pgp-alert--warning">
-        Cannot verify signature — no public key found for <strong>${escHtml(senderEmail || 'sender')}</strong>.
-        Import their key via Manage Keys to verify future messages.
-      </div>`;
+      const noSenderDueToVersion = !senderEmail && !_has17;
+      const hint = noSenderDueToVersion
+        ? 'Sender information is unavailable on this Outlook version. Upgrade to Outlook 2021 to verify signatures.'
+        : `No public key found for <strong>${escHtml(senderEmail || 'sender')}</strong>. Import their key via Manage Keys to verify future messages.`;
+      statusEl.innerHTML = `<div class="pgp-alert pgp-alert--warning">${hint}</div>`;
       return;
     }
 
@@ -684,11 +702,30 @@ function renderPgpAttachments() {
   pgpAttachments.forEach(att => {
     const li = document.createElement('li');
     li.className = 'pgp-attachment-item';
-    li.innerHTML = `
-      <span class="pgp-attachment-item__name" title="${escHtml(att.name)}">${escHtml(att.name)}</span>
-      <button class="pgp-btn pgp-btn--secondary pgp-btn--sm btn-decrypt-att" data-id="${escHtml(att.id)}" data-name="${escHtml(att.name)}">
-        Decrypt &amp; Download
-      </button>`;
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'pgp-attachment-item__name';
+    nameSpan.title = att.name;
+    nameSpan.textContent = att.name;
+    li.appendChild(nameSpan);
+
+    // Attachment decryption requires Mailbox 1.8. On older clients render a
+    // static note instead of a button that would fail at runtime.
+    if (_has18) {
+      const btn = document.createElement('button');
+      btn.className = 'pgp-btn pgp-btn--secondary pgp-btn--sm btn-decrypt-att';
+      btn.dataset.id   = att.id;
+      btn.dataset.name = att.name;
+      btn.textContent  = 'Decrypt & Download';
+      li.appendChild(btn);
+    } else {
+      const note = document.createElement('span');
+      note.style.fontSize = '11px';
+      note.style.color    = '#797775';
+      note.textContent    = 'Requires Outlook 2021 or Microsoft 365';
+      li.appendChild(note);
+    }
+
     list.appendChild(li);
   });
 
@@ -951,7 +988,14 @@ async function handleMobileEncryptReply() {
 
     // ── Discover the sender's public key ───────────────────────────────────
     if (!senderEmail) {
-      throw new Error('Cannot determine the sender\'s email address.');
+      // item.from is unavailable on Mailbox < 1.7 (Outlook 2019). Show a
+      // graceful message rather than throwing an unhandled error.
+      statusEl.textContent = !_has17
+        ? 'Encrypted reply requires Outlook 2021 or Microsoft 365 — sender information is unavailable on this Outlook version.'
+        : 'Cannot determine the sender\'s email address.';
+      statusEl.className = 'pgp-alert pgp-alert--error';
+      statusEl.classList.remove('pgp-hidden');
+      return;
     }
     const { key: senderKey } = await discoverKey(senderEmail);
     if (!senderKey) {
@@ -1029,10 +1073,22 @@ Office.onReady(async () => {
   const platform = Office.context.diagnostics?.platform;
   _isMobile = platform === 'Android' || platform === 'iOS';
 
+  // Capability flags — evaluated once after Office.js has initialized.
+  _has17 = Office.context.requirements.isSetSupported('Mailbox', '1.7');
+  _has18 = Office.context.requirements.isSetSupported('Mailbox', '1.8');
+
   if (_isMobile) {
     el('reply-desktop-hint').classList.add('pgp-hidden');
     el('reply-mobile-hint').classList.remove('pgp-hidden');
   }
+
+  // On Mailbox < 1.7 item.from is undefined, so recipient auto-fill is
+  // unavailable. Surface a note below the reply buttons so users aren't
+  // surprised when the compose window opens with an empty To field.
+  if (!_has17) {
+    el('reply-sender-note').classList.remove('pgp-hidden');
+  }
+
   // section-reply is visible on all platforms (mobile hint/desktop hint swap above).
 
   // Wire reply buttons regardless of key state — the user may want to reply
