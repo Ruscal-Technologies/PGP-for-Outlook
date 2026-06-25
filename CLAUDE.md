@@ -36,8 +36,8 @@ The add-in has four entry points in `web/`:
 
 | File | Purpose | Office API requirement |
 |------|---------|----------------------|
-| `MessageCompose.html/.js` | Encrypt outgoing messages, manage recipient keys | Mailbox 1.8 (attachment APIs) |
-| `MessageRead.html/.js` | Decrypt incoming messages, verify signatures | Mailbox 1.3 |
+| `MessageCompose.html/.js` | Encrypt outgoing messages, manage recipient keys | Mailbox 1.5 min; attachment encryption gates on `_has18` (1.8) at runtime |
+| `MessageRead.html/.js` | Decrypt incoming messages, verify signatures | Mailbox 1.5 min; attachment decrypt gates on `_has18` (1.8); sender info gates on `_has17` (1.7) |
 | `KeyManagement.html/.js` | Key generation, import, export, contacts keyring, org settings, Ko-fi support button (dynamically injected; suppressed by `hideSupportButton` org config) | Mailbox 1.1 |
 | `Functions/FunctionFile.html/.js` | UI-less ribbon action host | Mailbox 1.1 |
 

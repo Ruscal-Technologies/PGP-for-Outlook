@@ -70,7 +70,8 @@
 
   <!-- ================================================================
        Version Overrides - modern Outlook ribbon integration
-       Requires Mailbox 1.8 for compose attachment access.
+       Minimum: Mailbox 1.5 (Outlook 2019+). Attachment encryption
+       requires Mailbox 1.8 and is handled via runtime detection in JS.
 
        Structure: v1.0 outer (required by OfficeApp schema) contains all
        desktop content. Nested v1.1 inner adds MobileFormFactor support;
@@ -81,7 +82,7 @@
     xsi:type="VersionOverridesV1_0">
 
     <Requirements>
-      <bt:Sets DefaultMinVersion="1.8">
+      <bt:Sets DefaultMinVersion="1.5">
         <bt:Set Name="Mailbox" />
       </bt:Sets>
     </Requirements>
@@ -252,7 +253,7 @@
       xsi:type="VersionOverridesV1_1">
 
       <Requirements>
-        <bt:Sets DefaultMinVersion="1.8">
+        <bt:Sets DefaultMinVersion="1.5">
           <bt:Set Name="Mailbox" />
         </bt:Sets>
       </Requirements>
