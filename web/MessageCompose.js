@@ -28,7 +28,8 @@
  *  6. After encryption the Encrypt button is disabled so the message cannot be
  *     double-encrypted.  The user then sends the message normally.
  *
- * Requires: Mailbox 1.8 (for getAttachmentContentAsync / addFileAttachmentFromBase64Async)
+ * Requires: Mailbox 1.5 minimum (ribbon buttons, body encrypt/decrypt).
+ * Attachment encryption requires Mailbox 1.8 and is gated at runtime via _has18.
  */
 
 import {
@@ -93,6 +94,14 @@ let _companyKeys = [];
  * @type {boolean}
  */
 let _isWebOutlook = false;
+
+/**
+ * True when the host meets Mailbox 1.8 (Outlook 2021+ / Microsoft 365 / OWA).
+ * Required for getAttachmentContentAsync and addFileAttachmentFromBase64Async.
+ * Set once in Office.onReady via Office.context.requirements.isSetSupported().
+ * @type {boolean}
+ */
+let _has18 = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -258,6 +267,16 @@ function loadAttachments() {
   const list    = el('attachment-list');
   const empty   = el('attachments-empty');
   const loading = el('attachments-loading');
+  const note    = el('attach-capability-note');
+
+  // On Mailbox < 1.8 clients, swap the description to explain the limitation.
+  if (!_has18 && note) {
+    note.textContent =
+      '⚠ Your version of Outlook does not support attachment encryption. ' +
+      'Attachments must be removed before this message can be encrypted. ' +
+      'Upgrade to Outlook 2021 or Microsoft 365 for full attachment support.';
+    note.style.color = '#797775';
+  }
 
   loading.classList.remove('pgp-hidden');
   empty.classList.add('pgp-hidden');
@@ -484,8 +503,16 @@ async function handleEncrypt() {
 
     // 4. Encrypt attachments
     if (_attachments.length > 0) {
-      showStatus('Encrypting attachments…', 'info');
-      await encryptAttachments(allEncryptionKeys, signingKey);
+      if (!_has18) {
+        // Mailbox < 1.8: attachment APIs unavailable. Require explicit user
+        // consent before removing attachments — never silently destroy data.
+        const confirmed = await confirmAttachmentRemoval(_attachments.length);
+        if (!confirmed) throw new Error('Cancelled by user.');
+        await removeAllAttachments();
+      } else {
+        showStatus('Encrypting attachments…', 'info');
+        await encryptAttachments(allEncryptionKeys, signingKey);
+      }
     }
 
     showStatus('✓ Message encrypted. Click Send when ready.', 'success');
@@ -697,6 +724,49 @@ function setBodyAsync(armoredText) {
   return setBodyHtmlAsync(html);
 }
 
+/**
+ * Show a blocking modal asking the user to confirm that their attachments will
+ * be permanently removed before body-only encryption proceeds.
+ * Returns a Promise<boolean> — true if the user clicked confirm, false if cancelled.
+ */
+function confirmAttachmentRemoval(count) {
+  return new Promise((resolve) => {
+    const countEl = el('attach-remove-count');
+    countEl.textContent = `${count} attachment${count === 1 ? '' : 's'}`;
+
+    const modal = el('attach-remove-modal');
+    modal.style.display = 'flex';
+    modal.classList.remove('pgp-hidden');
+
+    function cleanup() {
+      modal.style.display = '';
+      modal.classList.add('pgp-hidden');
+      el('btn-attach-remove-confirm').removeEventListener('click', onConfirm);
+      el('btn-attach-remove-cancel').removeEventListener('click', onCancel);
+    }
+    function onConfirm() { cleanup(); resolve(true); }
+    function onCancel()  { cleanup(); resolve(false); }
+
+    el('btn-attach-remove-confirm').addEventListener('click', onConfirm);
+    el('btn-attach-remove-cancel').addEventListener('click', onCancel);
+  });
+}
+
+/**
+ * Remove every non-inline attachment from the item and reset local state.
+ * Called only on Mailbox < 1.8 after the user has explicitly confirmed removal.
+ * Reuses the existing removeAttachmentAsync wrapper — no new Office API surface.
+ */
+async function removeAllAttachments() {
+  const item = Office.context.mailbox.item;
+  for (const att of _attachments) {
+    await removeAttachmentAsync(item, att.id);
+  }
+  _attachments = [];
+  _inlineAttachments = [];
+  await loadAttachments();
+}
+
 async function encryptAttachments(encryptionKeys, signingKey) {
   const item = Office.context.mailbox.item;
 
@@ -842,6 +912,7 @@ function wireRecipientListEvents() {
 Office.onReady(async () => {
   const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
   _isWebOutlook = Office.context.platform === Office.PlatformType.OfficeOnline;
+  _has18 = Office.context.requirements.isSetSupported('Mailbox', '1.8');
 
   // Load org config
   await loadOrgConfig(userEmail);
