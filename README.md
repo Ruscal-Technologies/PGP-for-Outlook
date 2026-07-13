@@ -471,6 +471,10 @@ roaming settings and takes precedence over any well-known URL.
 
 1. Compose a new message and add recipients normally.
 2. Click **Encrypt** in the ribbon.
+   - The add-in always re-checks the To/CC fields the moment you click Encrypt,
+     so a message sent immediately after **Encrypted Reply** pre-fills
+     recipients still resolves them correctly — you don't need to click into
+     the field first.
 3. The pane shows key status for each recipient.  Resolve any missing keys.
 4. Optionally enable **Sign this message** (requires your passphrase at send
    time).  The toggle starts in the state you set in Personal Preferences and

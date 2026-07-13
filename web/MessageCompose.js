@@ -172,11 +172,31 @@ async function loadRecipients() {
   updateEncryptButton();
 }
 
-function getRecipientsAsync(recipients) {
+// Outlook's getAsync() only returns recipients it has *finished* resolving —
+// a recipient that's still being "checked" (e.g. right after "Reply
+// encrypted" pre-populates To/Cc, or moments after the user finishes typing)
+// is simply omitted, not returned in some half-resolved state. There's no
+// public API to force that resolution to happen; polling until two
+// consecutive reads agree is the documented workaround.
+function getRecipientsAsync(recipients, maxAttempts = 5, delayMs = 300) {
   return new Promise((resolve) => {
-    recipients.getAsync((result) => {
-      resolve(result.status === Office.AsyncResultStatus.Succeeded ? result.value : []);
-    });
+    let previous = null;
+    let attempt = 0;
+
+    const poll = () => {
+      recipients.getAsync((result) => {
+        const value = result.status === Office.AsyncResultStatus.Succeeded ? result.value : [];
+        attempt++;
+        if ((previous !== null && value.length === previous.length) || attempt >= maxAttempts) {
+          resolve(value);
+        } else {
+          previous = value;
+          setTimeout(poll, delayMs);
+        }
+      });
+    };
+
+    poll();
   });
 }
 
@@ -394,7 +414,19 @@ async function handleEncrypt() {
   spinner.classList.remove('pgp-hidden');
 
   try {
-    // 0. Refresh the attachment list in case attachments were added after the
+    // 0a. Re-check recipient resolution before doing anything else. If the
+    //     compose window was just opened (e.g. via "Reply encrypted") or the
+    //     user finished typing a recipient moments ago, Outlook may still be
+    //     resolving the To/Cc fields — loadRecipients() re-polls and
+    //     re-resolves keys so we don't encrypt against a stale/incomplete
+    //     recipient list.
+    showStatus('Checking recipients…', 'info');
+    await loadRecipients();
+    if (!_recipientResults.every(r => !!r.key)) {
+      throw new Error('Not all recipients have a resolved key yet — review the recipient list and try again.');
+    }
+
+    // 0b. Refresh the attachment list in case attachments were added after the
     //    pane was first opened.  Must be awaited so _attachments is current
     //    before the encryption loop runs.
     await loadAttachments();

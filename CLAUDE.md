@@ -69,6 +69,10 @@ Everything persists in **Office roaming settings** (32 KB total cap, syncs acros
 
 Storage budget is tight: ~8–10 ECC contact keys fit comfortably. Call `estimateStorageUsage()` to warn users before hitting the limit. RSA-4096 keys are ~2–3× larger than ECC keys.
 
+## Recipient resolution (MessageCompose.js)
+
+`item.to.getAsync()` / `item.cc.getAsync()` only return recipients Outlook has *finished* resolving — a recipient that's still being resolved (e.g. right after "Encrypted Reply" pre-populates To/Cc, or moments after the user finishes typing) is silently omitted rather than returned in some partial state. There is no public Office.js API to force that resolution (no `checkNames()`/`resolveRecipients()` equivalent), so `getRecipientsAsync()` polls up to 5 times at 300ms intervals until two consecutive reads agree on the recipient count. `handleEncrypt()` calls `loadRecipients()` (which uses this polling read and re-runs key discovery for any newly-resolved recipient) as its first step, before unlocking the signing key or touching attachments, and aborts with a status message if any recipient still lacks a resolved key afterward. This prevents encrypting against a stale/incomplete recipient list when the user clicks Encrypt quickly.
+
 ## Session cache (`session-cache.js`)
 
 The unlocked private key is held **only in the JavaScript heap** — never written to any persistent storage. Key facts:
@@ -79,7 +83,7 @@ The unlocked private key is held **only in the JavaScript heap** — never writt
 
 ## Manifest
 
-`manifest/manifest.xml` is an XML-format Office add-in manifest (VersionOverrides 1.0). It targets `MailApp` type with Mailbox 1.8 requirement.
+`manifest/manifest.xml` is an XML-format Office add-in manifest (VersionOverrides 1.0). It targets `MailApp` type with a 2-tier Mailbox requirement: a legacy `<Requirements>` block pinned to 1.1 for the add-in to load at all, and a `DefaultMinVersion="1.5"` inside `VersionOverrides` for the ribbon/task-pane surface. Attachment encryption (1.8) and sender-info APIs (1.7) are feature-detected at runtime via `_has18`/`_has17` rather than gated in the manifest — see the entry-points table above.
 
 The manifest in the repo points to `https://pgp-outlook.ruscaltech.com`. When forking or self-hosting, replace every URL in the file and regenerate the `<Id>` GUID. The `<AppDomains>` section controls task-pane navigation only, **not** `fetch()`/XHR (which is governed by CORS on the target server).
 
