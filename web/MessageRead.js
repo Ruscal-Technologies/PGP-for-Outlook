@@ -13,7 +13,7 @@
 import {
   unlockPrivateKey,
   decryptMessage, decryptAttachment, verifyCleartextMessage,
-  detectPgpContent,
+  detectPgpContent, stripPgpExtension,
   encryptMessage, readPublicKey,
 } from './js/pgp/pgp-core.js';
 import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault, getKeyMetadata } from './js/pgp/key-storage.js';
@@ -688,10 +688,17 @@ async function resolveVerificationKeys(senderEmail) {
 
 // ── Encrypted attachments ─────────────────────────────────────────────────────
 
+// This add-in only ever produces .pgp attachments (see MessageCompose.js), but
+// recognizes attachments encrypted by other PGP tools (GPG Suite, gpg4win, etc.)
+// too, so they can be decrypted here as well.
+const PGP_ATTACHMENT_EXTENSIONS = ['.pgp', '.gpg', '.asc'];
+
 function renderPgpAttachments() {
   const item = Office.context.mailbox.item;
   const attachments = item.attachments || [];
-  const pgpAttachments = attachments.filter(a => !a.isInline && a.name.endsWith('.pgp'));
+  const pgpAttachments = attachments.filter(a =>
+    !a.isInline && PGP_ATTACHMENT_EXTENSIONS.some(ext => a.name.toLowerCase().endsWith(ext))
+  );
 
   if (pgpAttachments.length === 0) return;
 
@@ -759,8 +766,9 @@ function renderPgpAttachments() {
       const { data: decryptedBytes, filename } = await decryptAttachment(armoredMessage, privateKey);
 
       // Trigger browser download
-      downloadBytes(decryptedBytes, filename || attachmentName.replace(/\.pgp$/i, ''));
-      showStatus(`"${filename || attachmentName}" decrypted and downloaded.`, 'success');
+      const fallbackName = stripPgpExtension(attachmentName);
+      downloadBytes(decryptedBytes, filename || fallbackName);
+      showStatus(`"${filename || fallbackName}" decrypted and downloaded.`, 'success');
 
     } catch (e) {
       if (e.message !== 'Cancelled.') {

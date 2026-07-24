@@ -567,6 +567,11 @@ export async function hasWeakEncryptionKey(keys) {
   return false;
 }
 
+// Literal Data packet filenames that mean "not a real attachment name" —
+// RFC 4880's "_CONSOLE" (for-your-eyes-only, don't save to disk) and a generic
+// "email" placeholder some clients use for message-body data.
+const NON_ATTACHMENT_FILENAME_MARKERS = new Set(['_console', 'email']);
+
 /**
  * Decrypt an armored PGP attachment message.
  *
@@ -595,11 +600,34 @@ export async function decryptAttachment(armoredMessage, decryptionKey) {
   // OpenPGP.js surfaces the Literal Data packet's filename on result.filename.
   // (message.packets[0].filename refers to the *encrypted* input packet, which
   // is never populated — the filename only becomes available after decryption.)
-  const filename = result.filename || '';
+  // Treat known non-attachment markers the same as an empty filename so callers
+  // fall back to naming the file from the attachment itself.
+  const rawFilename = (result.filename || '').trim();
+  const filename = NON_ATTACHMENT_FILENAME_MARKERS.has(rawFilename.toLowerCase())
+    ? ''
+    : rawFilename;
   return { data: result.data, filename };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Known extensions used by PGP tools (this add-in only ever produces .pgp itself;
+// .gpg/.asc cover attachments encrypted by other clients, e.g. GPG Suite, gpg4win).
+const PGP_FILE_EXTENSIONS = ['.pgp', '.gpg', '.asc'];
+
+/**
+ * Strip a single trailing known PGP extension (case-insensitive) from a filename.
+ * Used to recover a usable name when the decrypted Literal Data packet doesn't
+ * provide one.
+ *
+ * @param {string} filename
+ * @returns {string}
+ */
+export function stripPgpExtension(filename) {
+  const lower = filename.toLowerCase();
+  const ext = PGP_FILE_EXTENSIONS.find(e => lower.endsWith(e));
+  return ext ? filename.slice(0, -ext.length) : filename;
+}
 
 /**
  * Detect whether a string contains a PGP armored block and return its type.
