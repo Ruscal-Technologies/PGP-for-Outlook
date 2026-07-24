@@ -616,17 +616,20 @@ export async function decryptAttachment(armoredMessage, decryptionKey) {
 const PGP_FILE_EXTENSIONS = ['.pgp', '.gpg', '.asc'];
 
 /**
- * Strip a single trailing known PGP extension (case-insensitive) from a filename.
- * Used to recover a usable name when the decrypted Literal Data packet doesn't
- * provide one.
+ * Recover a usable filename from an attachment name when the decrypted Literal
+ * Data packet doesn't provide one: discards any directory path (some senders'
+ * clients attach the full original path, e.g. "C:\Users\me\Downloads\report.pdf.pgp"),
+ * then strips a single trailing known PGP extension (case-insensitive).
  *
  * @param {string} filename
  * @returns {string}
  */
 export function stripPgpExtension(filename) {
-  const lower = filename.toLowerCase();
+  const parts = filename.split(/[/\\]/);
+  const base = parts[parts.length - 1] || filename;
+  const lower = base.toLowerCase();
   const ext = PGP_FILE_EXTENSIONS.find(e => lower.endsWith(e));
-  return ext ? filename.slice(0, -ext.length) : filename;
+  return ext ? base.slice(0, -ext.length) : base;
 }
 
 /**
