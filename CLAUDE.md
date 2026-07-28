@@ -19,7 +19,17 @@ http-server web --ssl --port 3000
 
 Update `manifest/manifest.xml` to point at `https://localhost:3000/`, then sideload it in Outlook following Microsoft's [sideloading guide](https://docs.microsoft.com/en-us/office/dev/add-ins/testing/test-debug-office-add-ins).
 
-There is no test suite yet (tracked as a roadmap item — Vitest/Jest for `pgp-core.js`, Office mock libraries for integration tests).
+### Tests
+
+A Vitest suite in `tests/` covers the shared business-logic modules in `web/js/pgp/*.js` plus `web/js/wkd.js` — crypto round trips (`pgp-core.js`), storage (`key-storage.js`, mocked `Office.context.roamingSettings`), the contact keyring (`keyring.js`), key discovery precedence and fallbacks (`key-discovery.js`, mocked WKD/fetch), org config parsing and merging (`org-config.js`, mocked fetch), and the in-memory session cache/timeout (`session-cache.js`, fake timers). Run it with:
+
+```bash
+npm ci
+npm test        # vitest run
+npm run test:watch
+```
+
+**Known gaps** (not covered — see the "Scope decision" reasoning in the PR that added the suite): the four Office.js UI entry points (`MessageCompose.js`, `MessageRead.js`, `KeyManagement.js`, `Functions/FunctionFile.js`) — these execute `Office.onReady()` against real DOM element IDs and need a DOM environment plus a fuller Office.js mock to test properly; `hasWeakEncryptionKey` in `pgp-core.js` (no supported way to generate a real weak DSA/ElGamal key via `openpgp.generateKey`); and `WKD.lookup()`'s deep behavior in `web/js/wkd.js` (only its pure `encodeZBase32` helper is covered). CI (`.github/workflows/deploy-pages.yml`) runs `npm test` in the `build` job before packaging/deploying — a failing test blocks the GitHub Pages deploy.
 
 ## Regenerating icons
 

@@ -3,6 +3,10 @@
 # to the main / master branch, and generates the PGP-for-Outlook.zip deployment
 # package for the new Outlook / unified manifest.
 #
+# The build job runs the Vitest suite (npm test) before packaging/uploading
+# anything. Since the deploy job depends on build (needs: build), a failing
+# test run blocks deployment automatically — no extra wiring required.
+#
 # After the first deployment:
 #   1. Copy the Pages URL (e.g. https://<org>.github.io/<repo>/) from
 #      Settings → Pages in your GitHub repository.
@@ -52,6 +56,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
 
       - name: Build deployment ZIP (unified manifest)
         run: bash manifest/build-package.sh
