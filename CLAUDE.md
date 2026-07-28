@@ -21,7 +21,7 @@ Update `manifest/manifest.xml` to point at `https://localhost:3000/`, then sidel
 
 ### Tests
 
-A Vitest suite in `tests/` covers the shared business-logic modules in `web/js/pgp/*.js` plus `web/js/wkd.js` — crypto round trips (`pgp-core.js`), storage (`key-storage.js`, mocked `Office.context.roamingSettings`), the contact keyring (`keyring.js`), key discovery precedence and fallbacks (`key-discovery.js`, mocked WKD/fetch), org config parsing and merging (`org-config.js`, mocked fetch), and the in-memory session cache/timeout (`session-cache.js`, fake timers). Run it with:
+A Vitest suite in `tests/` covers the shared business-logic modules in `web/js/pgp/*.js` plus `web/js/wkd.js` — crypto round trips including multi-recipient, empty-string, unicode, and RSA-4096 (`pgp-core.js`), tampering/wrong-key failure modes (corrupted ciphertext, decrypting with a non-recipient key, malformed armor), legacy DSA+ElGamal key support (`hasWeakEncryptionKey`, `hasModernSubkeys`, `addModernSubkeys`, `extractPublicKey`) against a real fixture key in `tests/fixtures/`, storage (`key-storage.js`, mocked `Office.context.roamingSettings`, including its `saveAsync` failure path), the contact keyring (`keyring.js`), key discovery precedence and fallbacks (`key-discovery.js`, mocked WKD/fetch), org config parsing and merging (`org-config.js`, mocked fetch), and the in-memory session cache/timeout (`session-cache.js`, fake timers). Run it with:
 
 ```bash
 npm ci
@@ -29,7 +29,7 @@ npm test        # vitest run
 npm run test:watch
 ```
 
-**Known gaps** (not covered — see the "Scope decision" reasoning in the PR that added the suite): the four Office.js UI entry points (`MessageCompose.js`, `MessageRead.js`, `KeyManagement.js`, `Functions/FunctionFile.js`) — these execute `Office.onReady()` against real DOM element IDs and need a DOM environment plus a fuller Office.js mock to test properly; `hasWeakEncryptionKey` in `pgp-core.js` (no supported way to generate a real weak DSA/ElGamal key via `openpgp.generateKey`); and `WKD.lookup()`'s deep behavior in `web/js/wkd.js` (only its pure `encodeZBase32` helper is covered). CI (`.github/workflows/deploy-pages.yml`) runs `npm test` in the `build` job before packaging/deploying — a failing test blocks the GitHub Pages deploy.
+**Known gaps** (not covered — see the "Scope decision" reasoning in the PR that added the suite): the four Office.js UI entry points (`MessageCompose.js`, `MessageRead.js`, `KeyManagement.js`, `Functions/FunctionFile.js`) — these execute `Office.onReady()` against real DOM element IDs and need a DOM environment plus a fuller Office.js mock to test properly; the specific SHA-1-self-signature legacy-key retry path in `pgp-core.js` (`_isLegacySelfSigError`/`_buildLegacyKeyReadConfig`'s hash-rejection branch — the fixture key uses a modern SHA-256 self-signature since reproducing a genuine SHA-1 one needs forging packets or an ancient GnuPG version; the ElGamal/DSA "weak key" rejection path is covered); and `WKD.lookup()`'s deep behavior in `web/js/wkd.js` (only its pure `encodeZBase32` helper is covered). CI (`.github/workflows/deploy-pages.yml`) runs `npm test` in the `build` job before packaging/deploying — a failing test blocks the GitHub Pages deploy.
 
 ## Regenerating icons
 

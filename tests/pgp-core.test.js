@@ -4,6 +4,10 @@ import {
   readPublicKey,
   unlockPrivateKey,
   getKeyInfo,
+  extractPublicKey,
+  hasModernSubkeys,
+  addModernSubkeys,
+  hasWeakEncryptionKey,
   encryptMessage,
   decryptMessage,
   encryptAttachment,
@@ -14,6 +18,20 @@ import {
   base64ToUint8Array,
   uint8ArrayToBase64,
 } from '../web/js/pgp/pgp-core.js';
+import { LEGACY_PUBLIC_KEY, LEGACY_PRIVATE_KEY, LEGACY_PASSPHRASE } from './fixtures/legacy-dsa-elgamal-key.js';
+
+// Flips one base64 character in the armor body to simulate bit-level
+// corruption (e.g. a mangled transfer) without touching the header/footer/
+// checksum lines, so the armor still parses far enough to reach decryption.
+function corruptArmorBody(armored) {
+  const lines = armored.split('\n');
+  const bodyIndex = lines.findIndex((l, i) => i > 2 && l.length > 20 && !l.startsWith('='));
+  if (bodyIndex === -1) throw new Error('corruptArmorBody: no suitable body line found');
+  const line = lines[bodyIndex];
+  const flippedChar = line[5] === 'A' ? 'B' : 'A';
+  lines[bodyIndex] = line.slice(0, 5) + flippedChar + line.slice(6);
+  return lines.join('\n');
+}
 
 // Real ECC key generation is fast (~tens of ms), so we generate two key pairs
 // once and reuse them across tests rather than per-test.
@@ -184,4 +202,149 @@ describe('base64ToUint8Array / uint8ArrayToBase64', () => {
     const roundTripped = base64ToUint8Array(base64);
     expect(Array.from(roundTripped)).toEqual(Array.from(original));
   });
+});
+
+describe('extractPublicKey', () => {
+  it('extracts a public key matching the original from an armored private key', async () => {
+    const extracted = await extractPublicKey(alice.privateKey);
+    expect(extracted).toContain('-----BEGIN PGP PUBLIC KEY BLOCK-----');
+
+    const extractedInfo = await getKeyInfo(extracted);
+    const originalInfo = await getKeyInfo(alice.publicKey);
+    expect(extractedInfo.fingerprint).toBe(originalInfo.fingerprint);
+    expect(extractedInfo.isPrivate).toBe(false);
+  });
+});
+
+describe('generateKeyPair (rsa4096)', () => {
+  it('generates a working RSA-4096 key pair', async () => {
+    const rsaPair = await generateKeyPair('RSA Legacy Alice', 'rsa-alice@example.com', 'rsa passphrase', 'rsa4096');
+    const info = await getKeyInfo(rsaPair.publicKey);
+    expect(info.algorithm.toLowerCase()).toContain('rsa');
+
+    const recipientKey = await readPublicKey(rsaPair.publicKey);
+    const armored = await encryptMessage('hello rsa', [recipientKey]);
+    const unlocked = await unlockPrivateKey(rsaPair.privateKey, 'rsa passphrase');
+    const { data } = await decryptMessage(armored, unlocked);
+    expect(data).toBe('hello rsa');
+  }, 30000);
+});
+
+describe('encryptMessage — multiple recipients and text edge cases', () => {
+  it('encrypts once to multiple recipients; either can decrypt independently', async () => {
+    const aliceKey = await readPublicKey(alice.publicKey);
+    const bobKey = await readPublicKey(bob.publicKey);
+    const armored = await encryptMessage('shared secret', [aliceKey, bobKey]);
+
+    const unlockedAlice = await unlockPrivateKey(alice.privateKey, 'correct horse battery staple');
+    const unlockedBob = await unlockPrivateKey(bob.privateKey, 'hunter2 hunter2 hunter2');
+
+    expect((await decryptMessage(armored, unlockedAlice)).data).toBe('shared secret');
+    expect((await decryptMessage(armored, unlockedBob)).data).toBe('shared secret');
+  });
+
+  it('round-trips an empty string', async () => {
+    const recipientKey = await readPublicKey(alice.publicKey);
+    const armored = await encryptMessage('', [recipientKey]);
+    const unlockedAlice = await unlockPrivateKey(alice.privateKey, 'correct horse battery staple');
+    const { data } = await decryptMessage(armored, unlockedAlice);
+    expect(data).toBe('');
+  });
+
+  it('round-trips multi-byte unicode text (emoji, CJK)', async () => {
+    const recipientKey = await readPublicKey(alice.publicKey);
+    const text = 'emoji test 🎉🔒 and CJK text 中文测试';
+    const armored = await encryptMessage(text, [recipientKey]);
+    const unlockedAlice = await unlockPrivateKey(alice.privateKey, 'correct horse battery staple');
+    const { data } = await decryptMessage(armored, unlockedAlice);
+    expect(data).toBe(text);
+  });
+});
+
+describe('tampering and wrong-key failure modes', () => {
+  it('decryptMessage throws on a corrupted ciphertext rather than returning garbage', async () => {
+    const recipientKey = await readPublicKey(alice.publicKey);
+    const armored = await encryptMessage('do not tamper with me', [recipientKey]);
+    const corrupted = corruptArmorBody(armored);
+
+    const unlockedAlice = await unlockPrivateKey(alice.privateKey, 'correct horse battery staple');
+    await expect(decryptMessage(corrupted, unlockedAlice)).rejects.toThrow();
+  });
+
+  it('decryptMessage throws when decrypting with a key that is not a recipient', async () => {
+    const recipientKey = await readPublicKey(alice.publicKey);
+    const armored = await encryptMessage('for alice only', [recipientKey]);
+
+    const unlockedBob = await unlockPrivateKey(bob.privateKey, 'hunter2 hunter2 hunter2');
+    await expect(decryptMessage(armored, unlockedBob)).rejects.toThrow();
+  });
+
+  it('decryptAttachment throws on a corrupted ciphertext', async () => {
+    const recipientKey = await readPublicKey(alice.publicKey);
+    const armored = await encryptAttachment(new Uint8Array([1, 2, 3, 4, 5]), 'data.bin', [recipientKey]);
+    const corrupted = corruptArmorBody(armored);
+
+    const unlockedAlice = await unlockPrivateKey(alice.privateKey, 'correct horse battery staple');
+    await expect(decryptAttachment(corrupted, unlockedAlice)).rejects.toThrow();
+  });
+
+  it('readPublicKey throws on malformed armor instead of silently returning something usable', async () => {
+    await expect(readPublicKey('-----BEGIN PGP PUBLIC KEY BLOCK-----\nnot real armor\n-----END PGP PUBLIC KEY BLOCK-----')).rejects.toThrow();
+  });
+
+  it('unlockPrivateKey throws on malformed armor', async () => {
+    await expect(unlockPrivateKey('not an armored key at all', 'whatever')).rejects.toThrow();
+  });
+});
+
+describe('legacy DSA + ElGamal key support', () => {
+  // LEGACY_PUBLIC_KEY/LEGACY_PRIVATE_KEY are a real GnuPG-generated DSA-1024
+  // primary + ElGamal-1024 encryption subkey pair (see tests/fixtures for
+  // provenance). This exercises code paths that had zero coverage before:
+  // hasWeakEncryptionKey's true branch, hasModernSubkeys' false branch, and
+  // addModernSubkeys' full augmentation flow.
+  it('getKeyInfo reports the dsa algorithm', async () => {
+    const info = await getKeyInfo(LEGACY_PUBLIC_KEY);
+    expect(info.algorithm.toLowerCase()).toContain('dsa');
+    expect(info.email).toBe('legacy@example.com');
+  });
+
+  it('hasWeakEncryptionKey detects the ElGamal encryption subkey as weak', async () => {
+    const key = await readPublicKey(LEGACY_PUBLIC_KEY);
+    expect(await hasWeakEncryptionKey([key])).toBe(true);
+  });
+
+  it('hasModernSubkeys is false before augmentation', async () => {
+    expect(await hasModernSubkeys(LEGACY_PUBLIC_KEY)).toBe(false);
+  });
+
+  it('unlockPrivateKey works on the legacy key with its passphrase', async () => {
+    const unlocked = await unlockPrivateKey(LEGACY_PRIVATE_KEY, LEGACY_PASSPHRASE);
+    expect(unlocked.isPrivate()).toBe(true);
+  });
+
+  it('encrypts/decrypts a message and an attachment to the legacy ElGamal key', async () => {
+    const legacyPublicKey = await readPublicKey(LEGACY_PUBLIC_KEY);
+    const unlockedLegacy = await unlockPrivateKey(LEGACY_PRIVATE_KEY, LEGACY_PASSPHRASE);
+
+    const armoredMessage = await encryptMessage('hello legacy key', [legacyPublicKey]);
+    expect((await decryptMessage(armoredMessage, unlockedLegacy)).data).toBe('hello legacy key');
+
+    const armoredAttachment = await encryptAttachment(new Uint8Array([9, 8, 7]), 'legacy.bin', [legacyPublicKey]);
+    const { data, filename } = await decryptAttachment(armoredAttachment, unlockedLegacy);
+    expect(filename).toBe('legacy.bin');
+    expect(Array.from(data)).toEqual([9, 8, 7]);
+  });
+
+  it('addModernSubkeys augments the key so hasModernSubkeys becomes true, and the new subkey works', async () => {
+    const { armoredPrivate, armoredPublic } = await addModernSubkeys(LEGACY_PRIVATE_KEY, LEGACY_PASSPHRASE);
+
+    expect(await hasModernSubkeys(armoredPublic)).toBe(true);
+
+    const augmentedPublicKey = await readPublicKey(armoredPublic);
+    const armored = await encryptMessage('hello modern subkey', [augmentedPublicKey]);
+    const unlockedAugmented = await unlockPrivateKey(armoredPrivate, LEGACY_PASSPHRASE);
+    const { data } = await decryptMessage(armored, unlockedAugmented);
+    expect(data).toBe('hello modern subkey');
+  }, 15000);
 });

@@ -128,3 +128,33 @@ describe('estimateStorageUsage', () => {
     expect(after).toBeGreaterThan(before);
   });
 });
+
+describe('saveAsync failure path', () => {
+  // The real Office.context.roamingSettings.saveAsync can report a Failed
+  // status (e.g. sync conflict, quota); every write function in this module
+  // must propagate that as a rejected promise rather than resolving silently.
+  function makeSaveAsyncFail() {
+    global.Office.context.roamingSettings.saveAsync = (callback) => {
+      callback({ status: 'failed', error: { message: 'Simulated roaming settings save failure' } });
+    };
+  }
+
+  it('saveKeyPair rejects when saveAsync reports Failed', async () => {
+    makeSaveAsyncFail();
+    await expect(
+      keyStorage.saveKeyPair('PRIVATE-ARMOR', 'PUBLIC-ARMOR', { email: 'alice@example.com' })
+    ).rejects.toThrow('Simulated roaming settings save failure');
+  });
+
+  it('clearKeyPair rejects when saveAsync reports Failed', async () => {
+    makeSaveAsyncFail();
+    await expect(keyStorage.clearKeyPair()).rejects.toThrow('Simulated roaming settings save failure');
+  });
+
+  it('saveOrgOverride rejects when saveAsync reports Failed', async () => {
+    makeSaveAsyncFail();
+    await expect(keyStorage.saveOrgOverride({ companyKeyEnabled: true })).rejects.toThrow(
+      'Simulated roaming settings save failure'
+    );
+  });
+});

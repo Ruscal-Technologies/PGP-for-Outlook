@@ -554,8 +554,8 @@ attachment bytes and re-upload them — but this requires an OAuth token exchang
 outside the scope of the current task-pane-only architecture.
 
 **Test suite**
-Implemented: a Vitest suite in `tests/` covering `pgp-core.js` (real crypto round trips), `key-storage.js`, `keyring.js`, `key-discovery.js`, `org-config.js`, `session-cache.js`, and `wkd.js`'s `encodeZBase32` — no DOM required, run with `npm test`. Wired into CI (`.github/workflows/deploy-pages.yml`) as a gate before the GitHub Pages deploy.
-Still outstanding: integration tests for the compose/read/key-management task panes using Office mock libraries and a DOM environment (jsdom), plus coverage of `hasWeakEncryptionKey` and `WKD.lookup()`'s deep behavior.
+Implemented: a Vitest suite in `tests/` covering `pgp-core.js` (real crypto round trips — multi-recipient, unicode, empty string, RSA-4096; tampering and wrong-key failure modes; legacy DSA+ElGamal key support via a real fixture key, including `hasWeakEncryptionKey`/`hasModernSubkeys`/`addModernSubkeys`/`extractPublicKey`), `key-storage.js` (including its `saveAsync` failure path), `keyring.js`, `key-discovery.js`, `org-config.js`, `session-cache.js`, and `wkd.js`'s `encodeZBase32` — no DOM required, run with `npm test`. Wired into CI (`.github/workflows/deploy-pages.yml`) as a gate before the GitHub Pages deploy.
+Still outstanding: integration tests for the compose/read/key-management task panes using Office mock libraries and a DOM environment (jsdom); the SHA-1-self-signature legacy-key retry path specifically (narrower than before — the ElGamal/DSA weak-key rejection path is now covered); and `WKD.lookup()`'s deep behavior.
 
 **Audit log**
 For compliance environments, log encryption/decryption events (which keys,
