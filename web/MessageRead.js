@@ -747,29 +747,8 @@ function renderPgpAttachments() {
     const attachmentName = btn.dataset.name;
 
     try {
-      let privateKey = getSessionKey();
-      if (!privateKey) {
-        const passphrase = await promptPassphrase(`Enter your passphrase to decrypt ${attachmentName}.`);
-        privateKey = await unlockPrivateKey(getPrivateKey(), passphrase);
-        const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
-        const meta = getKeyMetadata();
-        cacheSessionKey(privateKey, userEmail, meta?.keyId?.slice(-8) || '');
-        updateSessionStatus();
-      }
-
-      const contentResult = await getAttachmentContentAsync(item, attachmentId);
-      // Strip any non-ASCII characters before decoding — Office.js should return
-      // clean RFC 4648 base64, but some Outlook Desktop builds append whitespace
-      // or platform-specific characters to the attachment content string.
-      const armoredMessage = atob(contentResult.content.replace(/[^\x00-\x7F]/g, ''));
-
-      const { data: decryptedBytes, filename } = await decryptAttachment(armoredMessage, privateKey);
-
-      // Trigger browser download
-      const fallbackName = stripPgpExtension(attachmentName);
-      downloadBytes(decryptedBytes, filename || fallbackName);
-      showStatus(`"${filename || fallbackName}" decrypted and downloaded.`, 'success');
-
+      const savedName = await decryptAndDownloadAttachment(item, attachmentId, attachmentName);
+      showStatus(`"${savedName}" decrypted and downloaded.`, 'success');
     } catch (e) {
       if (e.message !== 'Cancelled.') {
         showStatus(`Could not decrypt ${attachmentName}: ${e.message}`, 'error');
@@ -779,6 +758,71 @@ function renderPgpAttachments() {
       btn.textContent = 'Decrypt & Download';
     }
   });
+
+  const saveAllBtn = el('btn-save-all-attachments');
+  if (_has18) {
+    saveAllBtn.classList.remove('pgp-hidden');
+    saveAllBtn.onclick = () => saveAllAttachments(item, pgpAttachments);
+  } else {
+    saveAllBtn.classList.add('pgp-hidden');
+  }
+}
+
+// Decrypts a single PGP attachment and triggers its download. Shared by the
+// per-item "Decrypt & Download" buttons and the "Save All" batch handler so
+// both go through the same passphrase-unlock/decrypt/download path.
+async function decryptAndDownloadAttachment(item, attachmentId, attachmentName) {
+  let privateKey = getSessionKey();
+  if (!privateKey) {
+    const passphrase = await promptPassphrase(`Enter your passphrase to decrypt ${attachmentName}.`);
+    privateKey = await unlockPrivateKey(getPrivateKey(), passphrase);
+    const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
+    const meta = getKeyMetadata();
+    cacheSessionKey(privateKey, userEmail, meta?.keyId?.slice(-8) || '');
+    updateSessionStatus();
+  }
+
+  const contentResult = await getAttachmentContentAsync(item, attachmentId);
+  // Strip any non-ASCII characters before decoding — Office.js should return
+  // clean RFC 4648 base64, but some Outlook Desktop builds append whitespace
+  // or platform-specific characters to the attachment content string.
+  const armoredMessage = atob(contentResult.content.replace(/[^\x00-\x7F]/g, ''));
+
+  const { data: decryptedBytes, filename } = await decryptAttachment(armoredMessage, privateKey);
+
+  const fallbackName = stripPgpExtension(attachmentName);
+  downloadBytes(decryptedBytes, filename || fallbackName);
+  return filename || fallbackName;
+}
+
+async function saveAllAttachments(item, pgpAttachments) {
+  const saveAllBtn = el('btn-save-all-attachments');
+  saveAllBtn.disabled = true;
+  saveAllBtn.textContent = '…';
+
+  let successCount = 0;
+  const failures = [];
+
+  for (const att of pgpAttachments) {
+    try {
+      await decryptAndDownloadAttachment(item, att.id, att.name);
+      successCount++;
+    } catch (e) {
+      if (e.message === 'Cancelled.') break;
+      failures.push(att.name);
+    }
+  }
+
+  saveAllBtn.disabled = false;
+  saveAllBtn.textContent = 'Save All';
+
+  if (failures.length === 0 && successCount > 0) {
+    showStatus(`${successCount} attachment(s) decrypted and downloaded.`, 'success');
+  } else if (successCount > 0) {
+    showStatus(`${successCount} saved, failed: ${failures.join(', ')}`, 'error');
+  } else if (failures.length > 0) {
+    showStatus(`Could not decrypt: ${failures.join(', ')}`, 'error');
+  }
 }
 
 function getAttachmentContentAsync(item, attachmentId) {

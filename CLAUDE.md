@@ -110,7 +110,7 @@ Key config fields: `companyKeyEnabled`, `companyKeyRequired`, `companyKeyEmails[
 
 The add-in encrypts the **HTML body** of the message and replaces it with PGP armor. Subject lines, sender/recipient headers, and metadata are not encrypted (fundamental OpenPGP-over-email limitation). On decrypt, the original HTML is recovered and rendered in a sandboxed iframe.
 
-Attachments are encrypted individually to `filename.ext.pgp`. Inline (clipboard-pasted) images in the body cannot be read by the Office API on Outlook desktop; the add-in detects the broken `cid:` reference and warns the user. On Outlook Web it can convert them to regular attachments automatically.
+Attachments are encrypted individually to `filename.ext.pgp`. Inline (clipboard-pasted) images in the body cannot be read by the Office API on Outlook desktop; the add-in detects the broken `cid:` reference and warns the user. On Outlook Web it can convert them to regular attachments automatically. On decrypt, `MessageRead.js` offers both per-attachment "Decrypt & Download" buttons and a "Save All" button that decrypts and downloads every PGP attachment on the message sequentially, prompting for the passphrase only once.
 
 ## Skill routing
 
