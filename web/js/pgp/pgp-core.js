@@ -633,6 +633,23 @@ export function stripPgpExtension(filename) {
 }
 
 /**
+ * Insert an org-configured marker before a decrypted filename's extension,
+ * e.g. ("report.xlsx", "pgpDecrypted") -> "report.pgpDecrypted.xlsx".
+ * A falsy prefix is a no-op. Files with no extension (or dotfiles, e.g.
+ * ".gitignore") get the prefix appended as a new trailing segment instead.
+ *
+ * @param {string} filename
+ * @param {string} prefix
+ * @returns {string}
+ */
+export function applyDecryptedExtensionPrefix(filename, prefix) {
+  if (!prefix) return filename;
+  const lastDot = filename.lastIndexOf('.');
+  if (lastDot <= 0) return `${filename}.${prefix}`;
+  return `${filename.slice(0, lastDot)}.${prefix}${filename.slice(lastDot)}`;
+}
+
+/**
  * Detect whether a string contains a PGP armored block and return its type.
  * Used to decide which UI panel to show when reading a message.
  *

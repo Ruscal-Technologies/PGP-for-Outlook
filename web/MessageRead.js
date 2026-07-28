@@ -13,12 +13,13 @@
 import {
   unlockPrivateKey,
   decryptMessage, decryptAttachment, verifyCleartextMessage,
-  detectPgpContent, stripPgpExtension,
+  detectPgpContent, stripPgpExtension, applyDecryptedExtensionPrefix,
   encryptMessage, readPublicKey,
 } from './js/pgp/pgp-core.js';
 import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault, getKeyMetadata } from './js/pgp/key-storage.js';
 import { getContactKeyObject } from './js/pgp/keyring.js';
 import { discoverKey, KeyStatus } from './js/pgp/key-discovery.js';
+import { loadOrgConfig, getDecryptedExtensionPrefix } from './js/pgp/org-config.js';
 import {
   cacheSessionKey, getSessionKey, clearSessionKey,
   getSessionEmail, getSessionShortId, onSessionCleared,
@@ -791,8 +792,10 @@ async function decryptAndDownloadAttachment(item, attachmentId, attachmentName) 
   const { data: decryptedBytes, filename } = await decryptAttachment(armoredMessage, privateKey);
 
   const fallbackName = stripPgpExtension(attachmentName);
-  downloadBytes(decryptedBytes, filename || fallbackName);
-  return filename || fallbackName;
+  const decryptedName = filename || fallbackName;
+  const finalName = applyDecryptedExtensionPrefix(decryptedName, getDecryptedExtensionPrefix());
+  downloadBytes(decryptedBytes, finalName);
+  return finalName;
 }
 
 async function saveAllAttachments(item, pgpAttachments) {
@@ -1128,6 +1131,11 @@ Office.onReady(async () => {
   // Capability flags — evaluated once after Office.js has initialized.
   _has17 = Office.context.requirements.isSetSupported('Mailbox', '1.7');
   _has18 = Office.context.requirements.isSetSupported('Mailbox', '1.8');
+
+  // Load org config (e.g. companyDecryptedExtensionPrefix) before attachments
+  // are rendered/decrypted, so getDecryptedExtensionPrefix() reads populated data.
+  const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
+  await loadOrgConfig(userEmail);
 
   if (_isMobile) {
     el('reply-desktop-hint').classList.add('pgp-hidden');

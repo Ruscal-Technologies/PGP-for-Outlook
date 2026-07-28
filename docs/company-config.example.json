@@ -12,5 +12,10 @@
 
   "_comment5": "Set hideSupportButton to true to remove the Ko-fi support button from the Key Management pane.",
   "_comment6": "When true, the external Ko-fi script is never loaded. Defaults to false.",
-  "hideSupportButton": false
+  "hideSupportButton": false,
+
+  "_comment7": "Set companyDecryptedExtensionPrefix to insert a marker before the file extension",
+  "_comment8": "of every decrypted attachment, e.g. \"pgpDecrypted\" turns report.xlsx into",
+  "_comment9": "report.pgpDecrypted.xlsx. Leave \"\" (default) for no change.",
+  "companyDecryptedExtensionPrefix": ""
 }

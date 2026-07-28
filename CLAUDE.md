@@ -104,7 +104,7 @@ https://<email-domain>/.well-known/pgp-for-outlook-addin/company-config.json
 ```
 (fallback: `https://openpgpkey.<email-domain>/...`). See `docs/company-config.example.json` for the schema. The add-in fetches it anonymously and derives the URL from the signed-in user's email domain. A manual override stored in roaming settings takes precedence.
 
-Key config fields: `companyKeyEnabled`, `companyKeyRequired`, `companyKeyEmails[]`, and `hideSupportButton` (hides the Ko-fi donation button in the Key Management pane; when `true` the external CDN script is never loaded).
+Key config fields: `companyKeyEnabled`, `companyKeyRequired`, `companyKeyEmails[]`, `hideSupportButton` (hides the Ko-fi donation button in the Key Management pane; when `true` the external CDN script is never loaded), and `companyDecryptedExtensionPrefix` (string, default `""`; when set, inserted before the extension of every decrypted attachment filename in `MessageRead.js`, e.g. `"pgpDecrypted"` turns `report.xlsx` into `report.pgpDecrypted.xlsx`; empty/`null`/absent leaves filenames unchanged).
 
 ## Encryption scope
 

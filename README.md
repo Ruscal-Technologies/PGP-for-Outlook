@@ -399,6 +399,7 @@ See `docs/company-config.example.json` for the full documented template.
 | `companyKeyRequired` | boolean | `false` | If `true`, users cannot opt out per-message |
 | `companyKeyEmails` | string[] | `[]` | Email addresses whose keys are added to every encryption |
 | `hideSupportButton` | boolean | `false` | If `true`, hides the Ko-fi support button from the Key Management pane (the external CDN script is never loaded) |
+| `companyDecryptedExtensionPrefix` | string | `""` | Inserted before the extension of every decrypted attachment's filename, e.g. `"pgpDecrypted"` turns `report.xlsx` into `report.pgpDecrypted.xlsx`. Leave `""` (default) for no change; `null`/absent also means no change |
 
 ### Step 2: Publish it
 

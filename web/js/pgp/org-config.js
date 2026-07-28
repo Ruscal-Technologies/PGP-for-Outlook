@@ -16,7 +16,11 @@
  * {
  *   "companyKeyEnabled":  true,           // whether the feature is active
  *   "companyKeyRequired": false,          // if true, users cannot opt out
- *   "companyKeyEmails":   ["legal@example.com"]  // addresses to look up via WKD/VKS
+ *   "companyKeyEmails":   ["legal@example.com"],  // addresses to look up via WKD/VKS
+ *   "companyDecryptedExtensionPrefix": "pgpDecrypted"  // inserted before the
+ *                                          // extension of decrypted attachments,
+ *                                          // e.g. report.xlsx -> report.pgpDecrypted.xlsx.
+ *                                          // "" / null / absent = no change.
  * }
  *
  * A manual override stored in roaming settings takes precedence over the
@@ -33,6 +37,7 @@ const DEFAULT_CONFIG = Object.freeze({
   companyKeyRequired: false,
   companyKeyEmails:   [],
   hideSupportButton:  false,
+  companyDecryptedExtensionPrefix: '',
 });
 
 // Config and company keys are cached for the lifetime of the task pane session.
@@ -84,6 +89,7 @@ export async function loadOrgConfig(userEmail) {
             ...(typeof json.companyKeyRequired === 'boolean' && { companyKeyRequired: json.companyKeyRequired }),
             ...(Array.isArray(json.companyKeyEmails)          && { companyKeyEmails:   json.companyKeyEmails   }),
             ...(typeof json.hideSupportButton  === 'boolean' && { hideSupportButton:  json.hideSupportButton  }),
+            ...(typeof json.companyDecryptedExtensionPrefix === 'string' && { companyDecryptedExtensionPrefix: json.companyDecryptedExtensionPrefix }),
           };
           return _cachedConfig;
         }
@@ -119,6 +125,10 @@ export function getCompanyKeyEmails() {
 
 export function isSupportButtonHidden() {
   return getOrgConfig().hideSupportButton === true;
+}
+
+export function getDecryptedExtensionPrefix() {
+  return getOrgConfig().companyDecryptedExtensionPrefix || '';
 }
 
 // ── Company key fetching ──────────────────────────────────────────────────────
