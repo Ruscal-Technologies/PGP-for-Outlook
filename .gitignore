@@ -147,6 +147,9 @@ coverage*.json
 coverage*.xml
 coverage*.info
 
+# Vitest coverage report output (npm run test:coverage)
+/coverage/
+
 # Visual Studio code coverage results
 *.coverage
 *.coveragexml

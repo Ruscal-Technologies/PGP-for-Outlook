@@ -19,7 +19,20 @@ http-server web --ssl --port 3000
 
 Update `manifest/manifest.xml` to point at `https://localhost:3000/`, then sideload it in Outlook following Microsoft's [sideloading guide](https://docs.microsoft.com/en-us/office/dev/add-ins/testing/test-debug-office-add-ins).
 
-There is no test suite yet (tracked as a roadmap item — Vitest/Jest for `pgp-core.js`, Office mock libraries for integration tests).
+### Tests
+
+A Vitest suite in `tests/` covers the shared business-logic modules in `web/js/pgp/*.js` plus `web/js/wkd.js` — crypto round trips including multi-recipient, empty-string, unicode, and RSA-4096 (`pgp-core.js`), tampering/wrong-key failure modes (corrupted ciphertext, decrypting with a non-recipient key, malformed armor), legacy DSA+ElGamal key support (`hasWeakEncryptionKey`, `hasModernSubkeys`, `addModernSubkeys`, `extractPublicKey`) against a real fixture key in `tests/fixtures/`, storage (`key-storage.js`, mocked `Office.context.roamingSettings`, including its `saveAsync` failure path), the contact keyring (`keyring.js`), key discovery precedence and fallbacks (`key-discovery.js`, mocked WKD/fetch), org config parsing and merging (`org-config.js`, mocked fetch), the in-memory session cache/timeout (`session-cache.js`, fake timers), and `wkd.js`'s `lookup()` (advanced/direct URL fallback, hashing, error handling — mocked fetch, real WebCrypto). Run it with:
+
+```bash
+npm ci
+npm test              # vitest run
+npm run test:watch
+npm run test:coverage # adds a v8 coverage report (text + html + lcov in coverage/)
+```
+
+Coverage is scoped to `web/js/pgp/**` + `web/js/wkd.js` (see `vitest.config.js`) — it's currently ~97% statements/~97% functions for those files, reported for visibility only, with no enforced threshold (see gaps below for why a hard gate would be misleading right now).
+
+**Known gaps** (not covered — see the "Scope decision" reasoning in the PR that added the suite): the four Office.js UI entry points (`MessageCompose.js`, `MessageRead.js`, `KeyManagement.js`, `Functions/FunctionFile.js`) — these execute `Office.onReady()` against real DOM element IDs and need a DOM environment plus a fuller Office.js mock to test properly; and the specific SHA-1-self-signature legacy-key retry path in `pgp-core.js` (`_isLegacySelfSigError`/`_buildLegacyKeyReadConfig`'s hash-rejection branch — the fixture key uses a modern SHA-256 self-signature since reproducing a genuine SHA-1 one needs forging packets or an ancient GnuPG version; the ElGamal/DSA "weak key" rejection path is covered). CI (`.github/workflows/deploy-pages.yml`) runs `npm run test:coverage` in the `build` job before packaging/deploying, uploading the coverage report as a workflow artifact — a failing test blocks the GitHub Pages deploy; coverage itself is not a gate.
 
 ## Regenerating icons
 
