@@ -373,6 +373,21 @@ upload the XML.
 Microsoft 365 Admin Center → Settings → Integrated Apps → Upload custom app.
 Or use the `New-OrganizationAddIn` PowerShell cmdlet.
 
+That wizard also accepts a **link to a manifest file** instead of a manual
+upload. This repository's CI publishes a rolling GitHub Release, tagged
+`latest`, containing the current `manifest/manifest.xml` — updated
+automatically whenever a push to `main`/`master` changes that file and the
+test suite passes. Point the admin center at its stable download URL and it
+will always reflect the current manifest, with no re-upload needed after
+future changes:
+
+```
+https://github.com/<your-org-or-username>/<repo-name>/releases/latest/download/manifest.xml
+```
+
+(Only useful once you've updated the manifest for your own fork per step 2
+above — the URL always serves *this repo's* current `manifest.xml`.)
+
 ---
 
 ## Organization configuration (company / legal key)

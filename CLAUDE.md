@@ -100,6 +100,10 @@ The unlocked private key is held **only in the JavaScript heap** — never writt
 
 The manifest in the repo points to `https://pgp-outlook.ruscaltech.com`. When forking or self-hosting, replace every URL in the file and regenerate the `<Id>` GUID. The `<AppDomains>` section controls task-pane navigation only, **not** `fetch()`/XHR (which is governed by CORS on the target server).
 
+### Rolling "latest" release
+
+`.github/workflows/deploy-pages.yml`'s `build` job publishes/updates a GitHub Release tagged `latest` containing only `manifest/manifest.xml`, whenever a push to `main`/`master` both changes that file (checked via `dorny/paths-filter`, comparing against the prior commit) and passes the test suite. This gives IT admins a stable import-by-URL target for Exchange Online / M365 admin center's Integrated Apps (`https://github.com/<org>/<repo>/releases/latest/download/manifest.xml`) that updates itself — distinct from the separate, tag-triggered (`v*`) release which bundles `manifest.json` + icons instead.
+
 ## Key discovery chain
 
 `key-discovery.js` resolves a recipient email to a public key in this order:
