@@ -617,6 +617,8 @@ function openDecryptedPopup(text, isHtml, subject = '') {
     win.document.open();
     win.document.write(html);
     win.document.close();
+  } else {
+    showStatus('Pop-out window was blocked. Please allow pop-ups for this site and try again.', 'error');
   }
 }
 
