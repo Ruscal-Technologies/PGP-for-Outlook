@@ -576,6 +576,10 @@ function renderDecryptedBody(text, signatureResult, senderEmail) {
  * this 'blob' link".  Writing to a blank window bypasses that restriction and
  * also avoids the UTF-8 encoding ambiguity that caused apostrophes and other
  * non-ASCII characters to render as mojibake (â€™ etc.) in OWA.
+ *
+ * We also call win.focus() after writing — Outlook Classic's WebView2 host
+ * doesn't always raise the new window above the Outlook window on its own.
+ * See the inline comment near that call for the focus-stacking caveats.
  */
 function openDecryptedPopup(text, isHtml, subject = '') {
   const pageTitle = subject ? `PGP Decrypted : ${subject}` : 'PGP Decrypted';
@@ -617,6 +621,12 @@ function openDecryptedPopup(text, isHtml, subject = '') {
     win.document.open();
     win.document.write(html);
     win.document.close();
+    // Outlook Classic's WebView2 host doesn't always raise the new window
+    // above the Outlook window on its own; focus() is the one thing content
+    // scripts can do to ask for it. It's a request, not a guarantee — once
+    // the user clicks back into Outlook, normal OS window stacking applies
+    // and there's no API to pin it "always on top" beyond this point.
+    win.focus();
   } else {
     showStatus('Pop-out window was blocked. Please allow pop-ups for this site and try again.', 'error');
   }
