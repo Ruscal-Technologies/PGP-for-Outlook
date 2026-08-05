@@ -2,6 +2,9 @@
   "name": "pgp-for-outlook",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
