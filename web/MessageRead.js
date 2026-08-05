@@ -576,6 +576,10 @@ function renderDecryptedBody(text, signatureResult, senderEmail) {
  * this 'blob' link".  Writing to a blank window bypasses that restriction and
  * also avoids the UTF-8 encoding ambiguity that caused apostrophes and other
  * non-ASCII characters to render as mojibake (â€™ etc.) in OWA.
+ *
+ * We also call win.focus() after writing — Outlook Classic's WebView2 host
+ * doesn't always raise the new window above the Outlook window on its own.
+ * See the inline comment near that call for the focus-stacking caveats.
  */
 function openDecryptedPopup(text, isHtml, subject = '') {
   const pageTitle = subject ? `PGP Decrypted : ${subject}` : 'PGP Decrypted';
