@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PGP Decrypted</title>
+
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="css/pgp-addon.css" />
+</head>
+<body>
+  <div id="popout-error" class="pgp-alert pgp-alert--error pgp-hidden"></div>
+  <div class="pgp-decrypted-body pgp-hidden" id="popout-text"></div>
+  <div class="pgp-decrypted-html-wrapper pgp-hidden" id="popout-html-wrapper">
+    <iframe id="popout-html-frame"
+      sandbox="allow-same-origin"
+      referrerpolicy="no-referrer"
+      style="width:100%;height:100%;border:none;"
+      title="Decrypted message content"></iframe>
+  </div>
+  <script type="module" src="DecryptedPopup.js"></script>
+</body>
+</html>

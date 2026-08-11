@@ -48,6 +48,20 @@ let _has17 = false;
  */
 let _has18 = false;
 
+/**
+ * True when the host meets Mailbox 1.4 (Outlook 2016+).
+ * Required for Office.context.ui.displayDialogAsync / messageParent, used by
+ * the dialog-based "Pop Out" implementation (see openDecryptedPopupDialog).
+ * @type {boolean}
+ */
+let _has14 = false;
+
+/** Tracks the single open pop-out dialog, if any (the Dialog API only supports one per host window). */
+let _popoutDialog = null;
+
+/** Handshake budget for the pop-out dialog's BroadcastChannel readiness signal. */
+const PGP_POPOUT_HANDSHAKE_TIMEOUT_MS = 10000;
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -550,11 +564,15 @@ function renderDecryptedBody(text, signatureResult, senderEmail) {
 
   el('btn-popout-decrypted').addEventListener('click', () => {
     const subject = Office.context.mailbox.item?.subject || '';
-    openDecryptedPopup(text, isHtml, subject);
+    if (_has14 && !_isMobile) {
+      openDecryptedPopupDialog(text, isHtml, subject);
+    } else {
+      openDecryptedPopup(text, isHtml, subject);
+    }
   });
 }
 
-// ── Pop-out window ─────────────────────────────────────────────────────────────
+// ── Pop-out window (dialog-based, and legacy window.open fallback) ─────────────
 
 /**
  * Open decrypted content in a larger, resizable browser window.
@@ -630,6 +648,122 @@ function openDecryptedPopup(text, isHtml, subject = '') {
   } else {
     showStatus('Pop-out window was blocked. Please allow pop-ups for this site and try again.', 'error');
   }
+}
+
+/**
+ * Open decrypted content in an Office-managed dialog box.
+ *
+ * openDecryptedPopup()'s window.open() + focus() approach regressed: Windows'
+ * OS-level foreground-lock / focus-stealing prevention increasingly blocks a
+ * background WebView2 process from raising a window it didn't create as the
+ * foreground process — a content-script fix can't reliably override that OS
+ * policy decision, and it's expected to keep regressing as Windows/Edge/WebView2
+ * tighten enforcement further.
+ *
+ * displayDialogAsync sidesteps this: Outlook itself — already the foreground
+ * process, responding directly to the user's click — creates and raises the
+ * dialog, so it isn't subject to the same restriction.
+ *
+ * The decrypted payload is handed to the dialog page over a same-origin
+ * BroadcastChannel (in-memory only, never touches disk) rather than Office.js's
+ * own Dialog.messageChild, which requires Mailbox 1.9 — a full tier above this
+ * add-in's 1.5 floor, and would silently be unavailable on Outlook 2019-era
+ * desktop clients. See web/DecryptedPopup.js for the receiving side of the
+ * handshake (it signals "dialog-listening" before we post the payload, so the
+ * message can't be sent before anything is there to receive it).
+ *
+ * Falls back to openDecryptedPopup() (window.open) if BroadcastChannel is
+ * unavailable, or if displayDialogAsync itself fails to open a dialog.
+ *
+ * @param {string}  text     - Decrypted payload
+ * @param {boolean} isHtml   - True when the payload is HTML
+ * @param {string}  subject  - Original message subject (used as dialog title)
+ */
+function openDecryptedPopupDialog(text, isHtml, subject = '') {
+  const pageTitle = subject ? `PGP Decrypted : ${subject}` : 'PGP Decrypted';
+
+  if (typeof BroadcastChannel !== 'function') {
+    openDecryptedPopup(text, isHtml, subject);
+    return;
+  }
+
+  const token = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  let channel;
+  try {
+    channel = new BroadcastChannel('pgp_popout_' + token);
+  } catch {
+    openDecryptedPopup(text, isHtml, subject);
+    return;
+  }
+
+  const handshakeTimer = setTimeout(() => {
+    channel.close();
+    showStatus('Pop-out window failed to load. Please try again.', 'error');
+  }, PGP_POPOUT_HANDSHAKE_TIMEOUT_MS);
+
+  // The dialog signals readiness first; only then do we hand it the payload,
+  // so there's no window where the message could be sent before the dialog's
+  // own listener exists.
+  channel.onmessage = (event) => {
+    if (event.data?.type !== 'dialog-listening') return;
+    clearTimeout(handshakeTimer);
+    channel.postMessage({ type: 'payload', text, isHtml, title: pageTitle });
+    channel.close();
+  };
+
+  const dialogUrl = new URL(`DecryptedPopup.html?token=${encodeURIComponent(token)}`, window.location.href).href;
+
+  Office.context.ui.displayDialogAsync(dialogUrl, { height: 70, width: 60 }, (asyncResult) => {
+    if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+      clearTimeout(handshakeTimer);
+      channel.close();
+      handleDialogOpenFailure(asyncResult.error, text, isHtml, subject);
+      return;
+    }
+
+    _popoutDialog = asyncResult.value;
+    _popoutDialog.addEventHandler(Office.EventType.DialogMessageReceived, onPopoutDialogMessage);
+    _popoutDialog.addEventHandler(Office.EventType.DialogEventReceived, onPopoutDialogClosed);
+  });
+}
+
+/**
+ * Handle a displayDialogAsync() open failure.
+ *
+ * DialogAlreadyOpened (12007) means the user already has a pop-out open —
+ * surfaced as-is rather than falling back, since opening a second window via
+ * window.open() underneath an already-open dialog would be confusing rather
+ * than helpful. Any other failure falls back to the legacy window.open() path
+ * so the user isn't left with a dead button.
+ *
+ * Exact numeric codes are from the documented Dialog API error surface, not
+ * re-verified against the live docs this session — confirm against "Handle
+ * errors and events in the Office dialog box" if this ever needs updating.
+ */
+function handleDialogOpenFailure(error, text, isHtml, subject) {
+  if (error?.code === 12007) {
+    showStatus('A pop-out window is already open.', 'error');
+    return;
+  }
+  showStatus('Could not open the pop-out window as a dialog; opening a regular window instead.', 'warning');
+  openDecryptedPopup(text, isHtml, subject);
+}
+
+/** Relays a status message the dialog reported about itself (e.g. its handshake timed out). */
+function onPopoutDialogMessage(arg) {
+  let msg;
+  try { msg = JSON.parse(arg.message); } catch { return; }
+  if (msg.type === 'popout-error') {
+    showStatus('The pop-out window could not display the decrypted content. Please try again.', 'error');
+  }
+}
+
+/**
+ * Fires when the dialog closes — including an ordinary user-initiated close
+ * (error code 12006), which is expected UX and shows no error message.
+ */
+function onPopoutDialogClosed() {
+  _popoutDialog = null;
 }
 
 // ── Verify signed-only body ───────────────────────────────────────────────────
@@ -1143,6 +1277,7 @@ Office.onReady(async () => {
   // Capability flags — evaluated once after Office.js has initialized.
   _has17 = Office.context.requirements.isSetSupported('Mailbox', '1.7');
   _has18 = Office.context.requirements.isSetSupported('Mailbox', '1.8');
+  _has14 = Office.context.requirements.isSetSupported('Mailbox', '1.4');
 
   // Load org config (e.g. companyDecryptedExtensionPrefix) before attachments
   // are rendered/decrypted, so getDecryptedExtensionPrefix() reads populated data.
