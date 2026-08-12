@@ -328,6 +328,32 @@ function hideImportKeyForm() {
   el('import-key-buttons').classList.remove('pgp-hidden');
 }
 
+// Armored private keys are a few KB at most (even RSA-4096); anything past
+// this is almost certainly the wrong file selected by mistake.
+const MAX_IMPORT_KEY_FILE_BYTES = 1024 * 1024; // 1 MB
+
+/**
+ * Read a user-selected .asc file and populate the import textarea with its
+ * contents. Wired to the hidden file input's `change` event.
+ */
+async function handleImportPrivateKeyFileSelected(event) {
+  const file = event.target.files?.[0];
+  event.target.value = ''; // allow re-selecting the same file later
+  if (!file) return;
+
+  if (file.size > MAX_IMPORT_KEY_FILE_BYTES) {
+    showStatus('import-key-status', 'That file is too large to be a private key. Please choose a different .asc file.', 'error');
+    return;
+  }
+
+  try {
+    el('import-privkey-text').value = await file.text();
+    hideStatus('import-key-status');
+  } catch (err) {
+    showStatus('import-key-status', `Could not read file: ${err.message || 'unknown error'}`, 'error');
+  }
+}
+
 /**
  * Save a key pair (both armored strings + metadata object) to roaming settings.
  * Extracted as a helper so it is shared between the normal and legacy-confirm paths.
@@ -810,6 +836,8 @@ Office.onReady(async () => {
   });
   el('btn-import-key-cancel').addEventListener('click', hideImportKeyForm);
   el('btn-import-key-confirm').addEventListener('click', handleImportPrivateKey);
+  el('btn-import-privkey-file').addEventListener('click', () => el('import-privkey-file').click());
+  el('import-privkey-file').addEventListener('change', handleImportPrivateKeyFileSelected);
   el('btn-import-legacy-confirm').addEventListener('click', handleConfirmLegacyImport);
   el('btn-import-legacy-cancel').addEventListener('click', () => {
     _pendingLegacyImport = null;
