@@ -18,9 +18,14 @@
  *  - The focus-stacking caveat is the entire reason this file exists —
  *    Outlook raises the dialog itself, so there's no win.focus()-equivalent
  *    call needed or available here, and none should be added.
+ *
+ * Deliberately shorter than MessageRead.js's PGP_POPOUT_HANDSHAKE_TIMEOUT_MS
+ * (10s): this side reports a specific error via messageParent and the parent
+ * falls back to the legacy popup as soon as that arrives, so this timeout
+ * should win the race against the parent's own generic backstop timer in the
+ * normal case, giving the user the more specific message.
  */
-
-const PGP_POPOUT_HANDSHAKE_TIMEOUT_MS = 10000;
+const PGP_POPOUT_HANDSHAKE_TIMEOUT_MS = 8000;
 
 function showError(message) {
   const errorEl = document.getElementById('popout-error');
@@ -28,7 +33,7 @@ function showError(message) {
   errorEl.classList.remove('pgp-hidden');
 }
 
-function renderPayload({ text, isHtml, title }) {
+export function renderPayload({ text, isHtml, title }) {
   document.title = title || 'PGP Decrypted';
   if (isHtml) {
     document.getElementById('popout-html-frame').srcdoc = text;
@@ -39,9 +44,31 @@ function renderPayload({ text, isHtml, title }) {
   }
 }
 
-Office.onReady(() => {
+/**
+ * Best-effort notification to the parent pane. office.js may still be
+ * loading (or fail to load) when this fires, so it deliberately does not
+ * gate the render/handshake logic below — only this call waits on
+ * Office.onReady, and only if the Office global exists at all.
+ */
+function notifyParent(payload) {
+  if (typeof Office === 'undefined' || typeof Office.onReady !== 'function') return;
+  Office.onReady()
+    .then(() => {
+      try {
+        Office.context.ui.messageParent(JSON.stringify(payload));
+      } catch {
+        // Not fatal — this dialog may not be running inside a real Office dialog context.
+      }
+    })
+    .catch(() => {
+      // Not fatal — same as above.
+    });
+}
+
+(function init() {
   const token = new URLSearchParams(location.search).get('token');
   if (!token) {
+    console.error('Pop-out dialog opened without a token in the URL.');
     showError('This pop-out window was opened without a valid token.');
     return;
   }
@@ -49,33 +76,31 @@ Office.onReady(() => {
   let channel;
   try {
     channel = new BroadcastChannel('pgp_popout_' + token);
-  } catch {
+  } catch (err) {
+    console.error('Pop-out dialog: BroadcastChannel unavailable', err);
     showError('This pop-out window could not connect to receive the decrypted content.');
-    try {
-      Office.context.ui.messageParent(JSON.stringify({ type: 'popout-error', reason: 'broadcast-channel-unavailable' }));
-    } catch {
-      // Not fatal — this dialog may not be running inside a real Office dialog context.
-    }
+    notifyParent({ type: 'popout-error', reason: 'broadcast-channel-unavailable' });
     return;
   }
 
-  let timeoutId = setTimeout(() => {
+  const timeoutId = setTimeout(() => {
     channel.close();
+    console.error('Pop-out dialog: handshake timed out waiting for the parent to deliver a payload.');
     showError('The decrypted content did not arrive in time. Please try again.');
-    try {
-      Office.context.ui.messageParent(JSON.stringify({ type: 'popout-error', reason: 'timeout' }));
-    } catch {
-      // Not fatal — this dialog may not be running inside a real Office dialog context.
-    }
+    notifyParent({ type: 'popout-error', reason: 'timeout' });
   }, PGP_POPOUT_HANDSHAKE_TIMEOUT_MS);
 
   channel.onmessage = (event) => {
-    if (event.data?.type === 'payload') {
-      clearTimeout(timeoutId);
-      channel.close();
-      renderPayload(event.data);
+    if (event.data?.type !== 'payload') return;
+    clearTimeout(timeoutId);
+    channel.close();
+    if (typeof event.data.text !== 'string') {
+      console.error('Pop-out dialog: received a payload message with a missing/invalid text field', event.data);
+      showError('The decrypted content could not be displayed. Please try again.');
+      return;
     }
+    renderPayload(event.data);
   };
 
   channel.postMessage({ type: 'dialog-listening' });
-});
+})();

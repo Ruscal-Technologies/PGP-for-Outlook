@@ -8,6 +8,19 @@
 
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   <link rel="stylesheet" href="css/pgp-addon.css" />
+  <style>
+    /*
+     * pgp-addon.css's .pgp-decrypted-body / .pgp-decrypted-html-wrapper rules
+     * are sized for the small task-pane view (max-height: 300px,
+     * min-height: 200px). This dialog gets a full-size window from
+     * displayDialogAsync — override those caps so the content actually fills
+     * it, the way the legacy window.open() document used to.
+     */
+    html, body { height: 100%; margin: 0; }
+    body { padding: 12px; box-sizing: border-box; display: flex; flex-direction: column; }
+    #popout-text, #popout-html-wrapper { flex: 1; max-height: none; min-height: 0; }
+    #popout-html-frame { height: 100%; }
+  </style>
 </head>
 <body>
   <div id="popout-error" class="pgp-alert pgp-alert--error pgp-hidden"></div>
