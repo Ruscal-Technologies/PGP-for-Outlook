@@ -465,8 +465,9 @@ roaming settings and takes precedence over any well-known URL.
    - **Generate New Key Pair** — choose ECC (recommended) or RSA-4096 for
      legacy compatibility, fill in your name, email, and a strong passphrase.
    - **Import Existing Key** — paste your armored private key block (from
-     GnuPG, Kleopatra, Thunderbird, etc.) and enter its passphrase to verify.
-     Any OpenPGP key type is accepted (RSA, ECC, DSA/ElGamal).
+     GnuPG, Kleopatra, Thunderbird, etc.), or click **Choose File…** to load
+     it from a `.asc` file, then enter its passphrase to verify. Any OpenPGP
+     key type is accepted (RSA, ECC, DSA/ElGamal).
 3. Click **Copy Public Key** and share it with contacts who need to send you
    encrypted mail (email it, upload to [keys.openpgp.org](https://keys.openpgp.org),
    or publish via WKD).
