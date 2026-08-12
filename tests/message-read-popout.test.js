@@ -36,34 +36,41 @@ function installStubs() {
  */
 function installDialogStubs() {
   const stubs = installStubs();
-  // One fresh fake dialog object + captured handler per displayDialogAsync
+  // One fresh fake dialog object + captured handlers per displayDialogAsync
   // call, in order -- mirroring how the real API hands back a distinct
   // dialog object each time it's called. This distinctness is exactly what
   // the "_popoutDialog !== dialog" stale-session guard checks, so reusing a
   // single fake object here would silently defeat the test.
-  const dialogEventHandlers = [];
+  const dialogs = [];
+  const closeHandlers = [];
+  const messageHandlers = [];
   global.Office.AsyncResultStatus = { Succeeded: 'succeeded', Failed: 'failed' };
   global.Office.EventType = { DialogMessageReceived: 'dialogMessageReceived', DialogEventReceived: 'dialogEventReceived' };
   global.Office.context = {
     ui: {
       displayDialogAsync: vi.fn((_url, _opts, callback) => {
         const dialog = { close: vi.fn(), addEventHandler: vi.fn((type, handler) => {
-          if (type === 'dialogEventReceived') dialogEventHandlers.push(handler);
+          if (type === 'dialogEventReceived') closeHandlers.push(handler);
+          if (type === 'dialogMessageReceived') messageHandlers.push(handler);
         }) };
+        dialogs.push(dialog);
         callback({ status: 'succeeded', value: dialog });
       }),
     },
   };
   return {
     ...stubs,
-    // Defaults to the most recently opened dialog; pass an explicit index to
-    // target an earlier (now-superseded) one instead.
-    closeDialog: (arg, sessionIndex = dialogEventHandlers.length - 1) => dialogEventHandlers[sessionIndex](arg),
+    dialogs,
+    // Both default to the most recently opened dialog; pass an explicit
+    // index to target an earlier (now-superseded) one instead.
+    closeDialog: (arg, sessionIndex = closeHandlers.length - 1) => closeHandlers[sessionIndex](arg),
+    sendDialogMessage: (message, sessionIndex = messageHandlers.length - 1) => messageHandlers[sessionIndex]({ message: JSON.stringify(message) }),
   };
 }
 
 let handleDialogOpenFailure;
 let openDecryptedPopupDialog;
+let closePopoutDialogQuietly;
 
 beforeEach(async () => {
   // Office.onReady is the only thing MessageRead.js touches at module load
@@ -71,7 +78,7 @@ beforeEach(async () => {
   // so each test installs its own fresh stubs right before calling in.
   global.Office = { onReady: () => {} };
   vi.resetModules();
-  ({ handleDialogOpenFailure, openDecryptedPopupDialog } = await import('../web/MessageRead.js'));
+  ({ handleDialogOpenFailure, openDecryptedPopupDialog, closePopoutDialogQuietly } = await import('../web/MessageRead.js'));
 });
 
 afterEach(() => {
@@ -147,5 +154,48 @@ describe('onPopoutDialogClosed (via openDecryptedPopupDialog)', () => {
 
     expect(statusEl.textContent).toBe('');
     expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it('two failure signals for the same session (relayed error, then close) only fall back once', () => {
+    // Exercises the _popoutFallbackTriggered dedupe guard in
+    // triggerPopoutFallback: a dialog can report its own error via
+    // DialogMessageReceived and then close, or vice versa -- either way the
+    // legacy popup must open exactly once, not twice.
+    const { statusEl, windowOpen, closeDialog, sendDialogMessage } = installDialogStubs();
+
+    openDecryptedPopupDialog('plaintext secret', false, 'Subject');
+    sendDialogMessage({ type: 'popout-error', reason: 'timeout' });
+    closeDialog({ error: 12002 });
+
+    expect(windowOpen).toHaveBeenCalledTimes(1);
+    // The first signal's message wins; the second is a no-op.
+    expect(statusEl.textContent).toBe('The pop-out window could not display the decrypted content. Opening a regular window instead.');
+  });
+});
+
+describe('closePopoutDialogQuietly (wired to the Lock button)', () => {
+  it('closes the tracked dialog and cancels its handshake without falling back to the legacy popup', () => {
+    vi.useFakeTimers();
+    const { statusEl, windowOpen, dialogs } = installDialogStubs();
+
+    openDecryptedPopupDialog('plaintext secret', false, 'Subject');
+    closePopoutDialogQuietly();
+
+    // Locking is the user explicitly asking for decrypted content to stop
+    // being shown -- the dialog must actually be closed...
+    expect(dialogs[0].close).toHaveBeenCalledTimes(1);
+    // ...and, unlike a failure, this must NOT pop a replacement window.
+    expect(windowOpen).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toBe('');
+
+    // And the handshake timer must actually be cancelled, not just the
+    // dialog closed -- otherwise it fires later and opens one anyway.
+    vi.advanceTimersByTime(11000);
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it('is a harmless no-op when no dialog is open', () => {
+    installStubs();
+    expect(() => closePopoutDialogQuietly()).not.toThrow();
   });
 });

@@ -843,7 +843,7 @@ function triggerPopoutFallback(statusMessage) {
  * legacy popup — used when the user explicitly wants decrypted content to
  * stop being shown (Lock), not replaced with another window.
  */
-function closePopoutDialogQuietly() {
+export function closePopoutDialogQuietly() {
   clearPopoutHandshakeTimer();
   closePopoutHandshakeChannel();
   _popoutFallbackTriggered = true;
