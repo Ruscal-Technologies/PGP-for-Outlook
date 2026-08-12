@@ -136,11 +136,11 @@
       </p>
 
       <div class="pgp-field">
-        <div class="pgp-row" style="justify-content:space-between;align-items:center;">
+        <div class="pgp-row pgp-row--between">
           <label for="import-privkey-text">Armored private key</label>
           <button type="button" class="pgp-btn pgp-btn--secondary pgp-btn--sm" id="btn-import-privkey-file">Choose File…</button>
         </div>
-        <input type="file" id="import-privkey-file" accept=".asc" style="display:none;" />
+        <input type="file" id="import-privkey-file" accept=".asc" class="pgp-hidden" />
         <textarea id="import-privkey-text" rows="7"
           placeholder="-----BEGIN PGP PRIVATE KEY BLOCK-----"
           style="font-family:monospace;font-size:11px;resize:vertical;"></textarea>
