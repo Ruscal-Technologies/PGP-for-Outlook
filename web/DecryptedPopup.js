@@ -56,12 +56,15 @@ function notifyParent(payload) {
     .then(() => {
       try {
         Office.context.ui.messageParent(JSON.stringify(payload));
-      } catch {
-        // Not fatal — this dialog may not be running inside a real Office dialog context.
+      } catch (err) {
+        // Not fatal — this dialog may not be running inside a real Office dialog
+        // context — but still worth a log, since this is the dialog's only
+        // channel back to the parent when something has already gone wrong.
+        console.warn('Pop-out dialog: messageParent failed', err);
       }
     })
-    .catch(() => {
-      // Not fatal — same as above.
+    .catch((err) => {
+      console.warn('Pop-out dialog: Office.onReady failed while notifying the parent', err);
     });
 }
 

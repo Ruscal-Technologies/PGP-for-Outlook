@@ -683,6 +683,22 @@ function openDecryptedPopup(text, isHtml, subject = '') {
 }
 
 /**
+ * Generates the per-session BroadcastChannel token. Since the channel is
+ * kept open for the life of the dialog (to survive a reload) and the token
+ * is the only thing gating who can join it and receive the plaintext, this
+ * must be unguessable — crypto.randomUUID() when available, otherwise
+ * crypto.getRandomValues() (available anywhere BroadcastChannel is; unlike
+ * randomUUID, it doesn't require a secure context), never Date.now()/
+ * Math.random(), which are guessable.
+ */
+function generatePopoutToken() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * Open decrypted content in an Office-managed dialog box.
  *
  * openDecryptedPopup()'s window.open() + focus() approach regressed: Windows'
@@ -714,7 +730,7 @@ function openDecryptedPopup(text, isHtml, subject = '') {
  * @param {boolean} isHtml   - True when the payload is HTML
  * @param {string}  subject  - Original message subject (used as dialog title)
  */
-function openDecryptedPopupDialog(text, isHtml, subject = '') {
+export function openDecryptedPopupDialog(text, isHtml, subject = '') {
   const pageTitle = subject ? `PGP Decrypted : ${subject}` : 'PGP Decrypted';
 
   if (typeof BroadcastChannel !== 'function') {
@@ -727,7 +743,7 @@ function openDecryptedPopupDialog(text, isHtml, subject = '') {
   // what keeps a fresh attempt from immediately hitting DialogAlreadyOpened.
   closePopoutDialogQuietly();
 
-  const token = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  const token = generatePopoutToken();
   let channel;
   try {
     channel = new BroadcastChannel('pgp_popout_' + token);
@@ -766,9 +782,16 @@ function openDecryptedPopupDialog(text, isHtml, subject = '') {
       return;
     }
 
-    _popoutDialog = asyncResult.value;
-    _popoutDialog.addEventHandler(Office.EventType.DialogMessageReceived, onPopoutDialogMessage);
-    _popoutDialog.addEventHandler(Office.EventType.DialogEventReceived, onPopoutDialogClosed);
+    // Captured locally (in addition to the module-level _popoutDialog) so
+    // the two handlers below can tell a stale event from a dialog that's
+    // since been superseded — e.g. one that's still in flight from before
+    // closePopoutDialogQuietly()'s dialog.close() took effect — apart from a
+    // real event for the dialog that's actually current. See the
+    // "_popoutDialog !== dialog" guard in both handlers.
+    const dialog = asyncResult.value;
+    _popoutDialog = dialog;
+    dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => onPopoutDialogMessage(dialog, arg));
+    dialog.addEventHandler(Office.EventType.DialogEventReceived, (arg) => onPopoutDialogClosed(dialog, arg));
   });
 }
 
@@ -846,6 +869,11 @@ function closePopoutDialogQuietly() {
  */
 export function handleDialogOpenFailure(error, text, isHtml, subject) {
   if (error?.code === 12007) {
+    // The *existing* open dialog (the one causing this 12007) is untouched —
+    // only this just-failed attempt's own fallback state needs clearing, so
+    // its plaintext doesn't sit parked in module scope until the next click.
+    _popoutFallbackTriggered = true;
+    _popoutFallbackArgs = null;
     showStatus('A pop-out window is already open.', 'error');
     return;
   }
@@ -859,9 +887,16 @@ export function handleDialogOpenFailure(error, text, isHtml, subject) {
  * legacy popup rather than just showing a toast, consistent with this file's
  * "the user should never be left with just a dead dialog" goal.
  */
-function onPopoutDialogMessage(arg) {
+function onPopoutDialogMessage(dialog, arg) {
+  if (_popoutDialog !== dialog) return; // stale event from a superseded pop-out session
+
   let msg;
-  try { msg = JSON.parse(arg.message); } catch { return; }
+  try {
+    msg = JSON.parse(arg.message);
+  } catch (err) {
+    console.warn('Pop-out dialog: received a malformed relay message', arg.message, err);
+    return;
+  }
   if (msg.type === 'popout-error') {
     console.error('Pop-out dialog reported an error', msg.reason);
     triggerPopoutFallback('The pop-out window could not display the decrypted content. Opening a regular window instead.');
@@ -872,13 +907,24 @@ function onPopoutDialogMessage(arg) {
  * Fires when the dialog closes — including an ordinary user-initiated close
  * (error code 12006), which is expected UX and shows no error message.
  *
+ * The timer/channel cleanup runs unconditionally, before the 12006 check —
+ * this used to run only on the non-12006 path (via triggerPopoutFallback),
+ * which left two bugs on an ordinary close: a still-pending handshake timer
+ * would fire ~10s later and pop an unprompted plaintext window via the
+ * fallback, and the handshake channel — still holding the plaintext text in
+ * its onmessage closure — was never closed at all.
+ *
  * Any other code covers cases like the dialog failing to load (12002) or
  * other Dialog API runtime errors — those are real failures the previous
  * version of this handler silently discarded (it null'd out _popoutDialog
  * and nothing else), so it's treated as a signal to fall back.
  */
-function onPopoutDialogClosed(arg) {
+function onPopoutDialogClosed(dialog, arg) {
+  if (_popoutDialog !== dialog) return; // stale event from a superseded pop-out session
+
   _popoutDialog = null;
+  clearPopoutHandshakeTimer();
+  closePopoutHandshakeChannel();
   if (arg?.error === 12006) return;
   console.error('Pop-out dialog closed unexpectedly, error code', arg?.error);
   triggerPopoutFallback('The pop-out window closed unexpectedly. Opening a regular window instead.');
