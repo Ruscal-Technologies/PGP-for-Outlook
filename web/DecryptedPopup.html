@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PGP Decrypted</title>
+
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="css/pgp-addon.css" />
+  <style>
+    /*
+     * pgp-addon.css's .pgp-decrypted-body / .pgp-decrypted-html-wrapper rules
+     * are sized for the small task-pane view (max-height: 300px,
+     * min-height: 200px). This dialog gets a full-size window from
+     * displayDialogAsync — override those caps so the content actually fills
+     * it, the way the legacy window.open() document used to.
+     */
+    html, body { height: 100%; margin: 0; }
+    body { padding: 12px; box-sizing: border-box; display: flex; flex-direction: column; }
+    #popout-text, #popout-html-wrapper { flex: 1; max-height: none; min-height: 0; }
+    #popout-html-frame { height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="popout-error" class="pgp-alert pgp-alert--error pgp-hidden"></div>
+  <div class="pgp-decrypted-body pgp-hidden" id="popout-text"></div>
+  <div class="pgp-decrypted-html-wrapper pgp-hidden" id="popout-html-wrapper">
+    <iframe id="popout-html-frame"
+      sandbox="allow-same-origin"
+      referrerpolicy="no-referrer"
+      style="width:100%;height:100%;border:none;"
+      title="Decrypted message content"></iframe>
+  </div>
+  <script type="module" src="DecryptedPopup.js"></script>
+</body>
+</html>

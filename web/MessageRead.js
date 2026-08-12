@@ -48,6 +48,52 @@ let _has17 = false;
  */
 let _has18 = false;
 
+/**
+ * True when the host meets Mailbox 1.4 (Outlook 2016+).
+ * Required for Office.context.ui.displayDialogAsync / messageParent, used by
+ * the dialog-based "Pop Out" implementation (see openDecryptedPopupDialog).
+ * @type {boolean}
+ */
+let _has14 = false;
+
+/** Tracks the single open pop-out dialog, if any (the Dialog API only supports one per host window). */
+let _popoutDialog = null;
+
+/**
+ * Timer + channel for the pop-out dialog's BroadcastChannel handshake.
+ * Tracked at module scope (rather than only as locals inside
+ * openDecryptedPopupDialog) so onPopoutDialogClosed()/onPopoutDialogMessage()
+ * can settle a handshake that's still in flight — or, per #12, still
+ * servicing a reload — regardless of which event arrives.
+ *
+ * _popoutHandshakeChannel is deliberately kept open past the first payload
+ * delivery (see openDecryptedPopupDialog) rather than closed immediately: if
+ * the dialog reloads, it re-broadcasts "dialog-listening" and needs a live
+ * channel to receive the payload again. It's closed only once the dialog
+ * itself closes, or the handshake fails outright.
+ */
+let _popoutHandshakeTimer = null;
+let _popoutHandshakeChannel = null;
+
+/**
+ * Args to replay through the legacy openDecryptedPopup() fallback if the
+ * dialog-based path fails after successfully opening. Set for the duration
+ * of one openDecryptedPopupDialog() call; cleared once the fallback fires
+ * (or never used, if the dialog succeeds and the user closes it normally).
+ */
+let _popoutFallbackArgs = null;
+
+/**
+ * Guards triggerPopoutFallback() so exactly one failure signal — the
+ * parent's own handshake timeout, a relayed error from the dialog, or an
+ * unexpected DialogEventReceived — opens the legacy popup, even though more
+ * than one of those can fire for the same underlying failure.
+ */
+let _popoutFallbackTriggered = false;
+
+/** Handshake budget for the pop-out dialog's BroadcastChannel readiness signal. */
+const PGP_POPOUT_HANDSHAKE_TIMEOUT_MS = 10000;
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -550,11 +596,15 @@ function renderDecryptedBody(text, signatureResult, senderEmail) {
 
   el('btn-popout-decrypted').addEventListener('click', () => {
     const subject = Office.context.mailbox.item?.subject || '';
-    openDecryptedPopup(text, isHtml, subject);
+    if (_has14 && !_isMobile) {
+      openDecryptedPopupDialog(text, isHtml, subject);
+    } else {
+      openDecryptedPopup(text, isHtml, subject);
+    }
   });
 }
 
-// ── Pop-out window ─────────────────────────────────────────────────────────────
+// ── Pop-out window (dialog-based, and legacy window.open fallback) ─────────────
 
 /**
  * Open decrypted content in a larger, resizable browser window.
@@ -630,6 +680,254 @@ function openDecryptedPopup(text, isHtml, subject = '') {
   } else {
     showStatus('Pop-out window was blocked. Please allow pop-ups for this site and try again.', 'error');
   }
+}
+
+/**
+ * Generates the per-session BroadcastChannel token. Since the channel is
+ * kept open for the life of the dialog (to survive a reload) and the token
+ * is the only thing gating who can join it and receive the plaintext, this
+ * must be unguessable — crypto.randomUUID() when available, otherwise
+ * crypto.getRandomValues() (available anywhere BroadcastChannel is; unlike
+ * randomUUID, it doesn't require a secure context), never Date.now()/
+ * Math.random(), which are guessable.
+ */
+function generatePopoutToken() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Open decrypted content in an Office-managed dialog box.
+ *
+ * openDecryptedPopup()'s window.open() + focus() approach regressed: Windows'
+ * OS-level foreground-lock / focus-stealing prevention increasingly blocks a
+ * background WebView2 process from raising a window it didn't create as the
+ * foreground process — a content-script fix can't reliably override that OS
+ * policy decision, and it's expected to keep regressing as Windows/Edge/WebView2
+ * tighten enforcement further.
+ *
+ * displayDialogAsync sidesteps this: Outlook itself — already the foreground
+ * process, responding directly to the user's click — creates and raises the
+ * dialog, so it isn't subject to the same restriction.
+ *
+ * The decrypted payload is handed to the dialog page over a same-origin
+ * BroadcastChannel (in-memory only, never touches disk) rather than Office.js's
+ * own Dialog.messageChild, which requires Mailbox 1.9 — a full tier above this
+ * add-in's 1.5 floor, and would silently be unavailable on Outlook 2019-era
+ * desktop clients. See web/DecryptedPopup.js for the receiving side of the
+ * handshake (it signals "dialog-listening" before we post the payload, so the
+ * message can't be sent before anything is there to receive it).
+ *
+ * Falls back to openDecryptedPopup() (window.open) if BroadcastChannel is
+ * unavailable, if displayDialogAsync itself fails to open a dialog, or if a
+ * dialog that DID open never completes its handshake / reports its own
+ * failure / closes unexpectedly — see triggerPopoutFallback(), the single
+ * chokepoint all of those failure signals funnel through.
+ *
+ * @param {string}  text     - Decrypted payload
+ * @param {boolean} isHtml   - True when the payload is HTML
+ * @param {string}  subject  - Original message subject (used as dialog title)
+ */
+export function openDecryptedPopupDialog(text, isHtml, subject = '') {
+  const pageTitle = subject ? `PGP Decrypted : ${subject}` : 'PGP Decrypted';
+
+  if (typeof BroadcastChannel !== 'function') {
+    openDecryptedPopup(text, isHtml, subject);
+    return;
+  }
+
+  // Defensively close any dialog we're still tracking before opening a new
+  // one — if our reference ever went stale (missed a close event), this is
+  // what keeps a fresh attempt from immediately hitting DialogAlreadyOpened.
+  closePopoutDialogQuietly();
+
+  const token = generatePopoutToken();
+  let channel;
+  try {
+    channel = new BroadcastChannel('pgp_popout_' + token);
+  } catch (err) {
+    console.error('Pop-out dialog: BroadcastChannel construction failed', err);
+    openDecryptedPopup(text, isHtml, subject);
+    return;
+  }
+  _popoutHandshakeChannel = channel;
+  _popoutFallbackTriggered = false;
+  _popoutFallbackArgs = { text, isHtml, subject };
+
+  _popoutHandshakeTimer = setTimeout(() => {
+    console.error('Pop-out dialog: handshake timed out waiting for the dialog to signal readiness.');
+    triggerPopoutFallback('Pop-out window failed to load. Please try again.');
+  }, PGP_POPOUT_HANDSHAKE_TIMEOUT_MS);
+
+  // The dialog signals readiness first; only then do we hand it the payload,
+  // so there's no window where the message could be sent before the dialog's
+  // own listener exists. The channel is deliberately left open afterward
+  // (see the module-state docblock above) rather than closed here.
+  channel.onmessage = (event) => {
+    if (event.data?.type !== 'dialog-listening') return;
+    clearPopoutHandshakeTimer();
+    channel.postMessage({ type: 'payload', text, isHtml, title: pageTitle });
+  };
+
+  const dialogUrl = new URL(`DecryptedPopup.html?token=${encodeURIComponent(token)}`, window.location.href).href;
+
+  Office.context.ui.displayDialogAsync(dialogUrl, { height: 70, width: 60 }, (asyncResult) => {
+    if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+      console.error('Pop-out dialog: displayDialogAsync failed to open', asyncResult.error);
+      clearPopoutHandshakeTimer();
+      closePopoutHandshakeChannel();
+      handleDialogOpenFailure(asyncResult.error, text, isHtml, subject);
+      return;
+    }
+
+    // Captured locally (in addition to the module-level _popoutDialog) so
+    // the two handlers below can tell a stale event from a dialog that's
+    // since been superseded — e.g. one that's still in flight from before
+    // closePopoutDialogQuietly()'s dialog.close() took effect — apart from a
+    // real event for the dialog that's actually current. See the
+    // "_popoutDialog !== dialog" guard in both handlers.
+    const dialog = asyncResult.value;
+    _popoutDialog = dialog;
+    dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => onPopoutDialogMessage(dialog, arg));
+    dialog.addEventHandler(Office.EventType.DialogEventReceived, (arg) => onPopoutDialogClosed(dialog, arg));
+  });
+}
+
+/** Cancels the pending pop-out handshake timeout, if one is still running. */
+function clearPopoutHandshakeTimer() {
+  if (_popoutHandshakeTimer) {
+    clearTimeout(_popoutHandshakeTimer);
+    _popoutHandshakeTimer = null;
+  }
+}
+
+/** Closes the pending pop-out handshake's BroadcastChannel, if still open. */
+function closePopoutHandshakeChannel() {
+  if (_popoutHandshakeChannel) {
+    _popoutHandshakeChannel.close();
+    _popoutHandshakeChannel = null;
+  }
+}
+
+/**
+ * Ends the in-flight pop-out handshake exactly once and falls back to the
+ * legacy openDecryptedPopup() (window.open) path, so the user is never left
+ * staring at a stranded/blank dialog. Safe to call more than once for the
+ * same failure — e.g. a relayed error from the dialog and this window's own
+ * backstop timeout can both fire for the same underlying cause, but only
+ * the first call does anything; see _popoutFallbackTriggered.
+ */
+function triggerPopoutFallback(statusMessage) {
+  if (_popoutFallbackTriggered) return;
+  _popoutFallbackTriggered = true;
+
+  clearPopoutHandshakeTimer();
+  closePopoutHandshakeChannel();
+
+  if (_popoutDialog) {
+    try { _popoutDialog.close(); } catch { /* dialog may already be gone */ }
+    _popoutDialog = null;
+  }
+
+  if (statusMessage) showStatus(statusMessage, 'error');
+
+  const args = _popoutFallbackArgs;
+  _popoutFallbackArgs = null;
+  if (args) openDecryptedPopup(args.text, args.isHtml, args.subject);
+}
+
+/**
+ * Closes any dialog we're currently tracking without falling back to the
+ * legacy popup — used when the user explicitly wants decrypted content to
+ * stop being shown (Lock), not replaced with another window.
+ */
+export function closePopoutDialogQuietly() {
+  clearPopoutHandshakeTimer();
+  closePopoutHandshakeChannel();
+  _popoutFallbackTriggered = true;
+  _popoutFallbackArgs = null;
+  if (_popoutDialog) {
+    try { _popoutDialog.close(); } catch { /* already closed */ }
+    _popoutDialog = null;
+  }
+}
+
+/**
+ * Handle a displayDialogAsync() open failure.
+ *
+ * DialogAlreadyOpened (12007) means the user already has a pop-out open —
+ * surfaced as-is rather than falling back, since opening a second window via
+ * window.open() underneath an already-open dialog would be confusing rather
+ * than helpful. Any other failure falls back to the legacy window.open() path
+ * so the user isn't left with a dead button.
+ *
+ * Exact numeric codes are from the documented Dialog API error surface, not
+ * re-verified against the live docs this session — confirm against "Handle
+ * errors and events in the Office dialog box" if this ever needs updating.
+ */
+export function handleDialogOpenFailure(error, text, isHtml, subject) {
+  if (error?.code === 12007) {
+    // The *existing* open dialog (the one causing this 12007) is untouched —
+    // only this just-failed attempt's own fallback state needs clearing, so
+    // its plaintext doesn't sit parked in module scope until the next click.
+    _popoutFallbackTriggered = true;
+    _popoutFallbackArgs = null;
+    showStatus('A pop-out window is already open.', 'error');
+    return;
+  }
+  showStatus('Could not open the pop-out window as a dialog; opening a regular window instead.', 'warning');
+  openDecryptedPopup(text, isHtml, subject);
+}
+
+/**
+ * Relays a message the dialog reported about itself — currently only its own
+ * handshake-timeout / BroadcastChannel-unavailable errors. Falls back to the
+ * legacy popup rather than just showing a toast, consistent with this file's
+ * "the user should never be left with just a dead dialog" goal.
+ */
+function onPopoutDialogMessage(dialog, arg) {
+  if (_popoutDialog !== dialog) return; // stale event from a superseded pop-out session
+
+  let msg;
+  try {
+    msg = JSON.parse(arg.message);
+  } catch (err) {
+    console.warn('Pop-out dialog: received a malformed relay message', arg.message, err);
+    return;
+  }
+  if (msg.type === 'popout-error') {
+    console.error('Pop-out dialog reported an error', msg.reason);
+    triggerPopoutFallback('The pop-out window could not display the decrypted content. Opening a regular window instead.');
+  }
+}
+
+/**
+ * Fires when the dialog closes — including an ordinary user-initiated close
+ * (error code 12006), which is expected UX and shows no error message.
+ *
+ * The timer/channel cleanup runs unconditionally, before the 12006 check —
+ * this used to run only on the non-12006 path (via triggerPopoutFallback),
+ * which left two bugs on an ordinary close: a still-pending handshake timer
+ * would fire ~10s later and pop an unprompted plaintext window via the
+ * fallback, and the handshake channel — still holding the plaintext text in
+ * its onmessage closure — was never closed at all.
+ *
+ * Any other code covers cases like the dialog failing to load (12002) or
+ * other Dialog API runtime errors — those are real failures the previous
+ * version of this handler silently discarded (it null'd out _popoutDialog
+ * and nothing else), so it's treated as a signal to fall back.
+ */
+function onPopoutDialogClosed(dialog, arg) {
+  if (_popoutDialog !== dialog) return; // stale event from a superseded pop-out session
+
+  _popoutDialog = null;
+  clearPopoutHandshakeTimer();
+  closePopoutHandshakeChannel();
+  if (arg?.error === 12006) return;
+  console.error('Pop-out dialog closed unexpectedly, error code', arg?.error);
+  triggerPopoutFallback('The pop-out window closed unexpectedly. Opening a regular window instead.');
 }
 
 // ── Verify signed-only body ───────────────────────────────────────────────────
@@ -1143,6 +1441,7 @@ Office.onReady(async () => {
   // Capability flags — evaluated once after Office.js has initialized.
   _has17 = Office.context.requirements.isSetSupported('Mailbox', '1.7');
   _has18 = Office.context.requirements.isSetSupported('Mailbox', '1.8');
+  _has14 = Office.context.requirements.isSetSupported('Mailbox', '1.4');
 
   // Load org config (e.g. companyDecryptedExtensionPrefix) before attachments
   // are rendered/decrypted, so getDecryptedExtensionPrefix() reads populated data.
@@ -1229,6 +1528,10 @@ Office.onReady(async () => {
 
   el('btn-lock-session').addEventListener('click', () => {
     clearSessionKey(); // triggers onSessionCleared → updateSessionStatus
+    // Locking is explicit user intent to stop showing decrypted content —
+    // close any open pop-out dialog rather than leaving it displaying
+    // plaintext after the session key it depended on is gone.
+    closePopoutDialogQuietly();
   });
 
   await detectAndRenderBody();

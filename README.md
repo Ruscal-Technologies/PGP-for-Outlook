@@ -149,9 +149,9 @@ signing on by default.
 
 - You cannot encrypt a *new* outgoing message from mobile — you must draft and
   encrypt it from a desktop or web client.
-- The pop-out decrypted-content window (`Open in full window` button) requires
-  `window.open()`, which mobile WebViews block.  The decrypted content is still
-  readable in the task pane itself.
+- The pop-out decrypted-content window (`Open in full window` button) is
+  hidden entirely on mobile, since mobile WebViews block `window.open()`.
+  The decrypted content is still readable in the task pane itself.
 - Attachment decryption produces a download, but mobile browsers may handle the
   resulting file differently depending on the app and OS file associations.
 
