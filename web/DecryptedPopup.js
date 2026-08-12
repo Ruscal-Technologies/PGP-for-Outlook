@@ -46,7 +46,19 @@ Office.onReady(() => {
     return;
   }
 
-  const channel = new BroadcastChannel('pgp_popout_' + token);
+  let channel;
+  try {
+    channel = new BroadcastChannel('pgp_popout_' + token);
+  } catch {
+    showError('This pop-out window could not connect to receive the decrypted content.');
+    try {
+      Office.context.ui.messageParent(JSON.stringify({ type: 'popout-error', reason: 'broadcast-channel-unavailable' }));
+    } catch {
+      // Not fatal — this dialog may not be running inside a real Office dialog context.
+    }
+    return;
+  }
+
   let timeoutId = setTimeout(() => {
     channel.close();
     showError('The decrypted content did not arrive in time. Please try again.');

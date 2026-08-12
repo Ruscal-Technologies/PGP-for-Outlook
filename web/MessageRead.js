@@ -59,6 +59,17 @@ let _has14 = false;
 /** Tracks the single open pop-out dialog, if any (the Dialog API only supports one per host window). */
 let _popoutDialog = null;
 
+/**
+ * Timer + channel for the pop-out dialog's pending BroadcastChannel handshake.
+ * Tracked at module scope (rather than only as locals inside
+ * openDecryptedPopupDialog) so onPopoutDialogClosed() can cancel a handshake
+ * that's still in flight when the user closes the dialog early — otherwise
+ * the timeout fires afterward and reports a misleading "failed to load"
+ * error for what was actually a normal user-initiated close.
+ */
+let _popoutHandshakeTimer = null;
+let _popoutHandshakeChannel = null;
+
 /** Handshake budget for the pop-out dialog's BroadcastChannel readiness signal. */
 const PGP_POPOUT_HANDSHAKE_TIMEOUT_MS = 10000;
 
@@ -695,9 +706,11 @@ function openDecryptedPopupDialog(text, isHtml, subject = '') {
     openDecryptedPopup(text, isHtml, subject);
     return;
   }
+  _popoutHandshakeChannel = channel;
 
-  const handshakeTimer = setTimeout(() => {
-    channel.close();
+  _popoutHandshakeTimer = setTimeout(() => {
+    _popoutHandshakeTimer = null;
+    closePopoutHandshakeChannel();
     showStatus('Pop-out window failed to load. Please try again.', 'error');
   }, PGP_POPOUT_HANDSHAKE_TIMEOUT_MS);
 
@@ -706,17 +719,17 @@ function openDecryptedPopupDialog(text, isHtml, subject = '') {
   // own listener exists.
   channel.onmessage = (event) => {
     if (event.data?.type !== 'dialog-listening') return;
-    clearTimeout(handshakeTimer);
+    clearPopoutHandshakeTimer();
     channel.postMessage({ type: 'payload', text, isHtml, title: pageTitle });
-    channel.close();
+    closePopoutHandshakeChannel();
   };
 
   const dialogUrl = new URL(`DecryptedPopup.html?token=${encodeURIComponent(token)}`, window.location.href).href;
 
   Office.context.ui.displayDialogAsync(dialogUrl, { height: 70, width: 60 }, (asyncResult) => {
     if (asyncResult.status === Office.AsyncResultStatus.Failed) {
-      clearTimeout(handshakeTimer);
-      channel.close();
+      clearPopoutHandshakeTimer();
+      closePopoutHandshakeChannel();
       handleDialogOpenFailure(asyncResult.error, text, isHtml, subject);
       return;
     }
@@ -725,6 +738,22 @@ function openDecryptedPopupDialog(text, isHtml, subject = '') {
     _popoutDialog.addEventHandler(Office.EventType.DialogMessageReceived, onPopoutDialogMessage);
     _popoutDialog.addEventHandler(Office.EventType.DialogEventReceived, onPopoutDialogClosed);
   });
+}
+
+/** Cancels the pending pop-out handshake timeout, if one is still running. */
+function clearPopoutHandshakeTimer() {
+  if (_popoutHandshakeTimer) {
+    clearTimeout(_popoutHandshakeTimer);
+    _popoutHandshakeTimer = null;
+  }
+}
+
+/** Closes the pending pop-out handshake's BroadcastChannel, if still open. */
+function closePopoutHandshakeChannel() {
+  if (_popoutHandshakeChannel) {
+    _popoutHandshakeChannel.close();
+    _popoutHandshakeChannel = null;
+  }
 }
 
 /**
@@ -761,8 +790,15 @@ function onPopoutDialogMessage(arg) {
 /**
  * Fires when the dialog closes — including an ordinary user-initiated close
  * (error code 12006), which is expected UX and shows no error message.
+ *
+ * Also cancels any handshake still pending for this dialog: closing before
+ * the BroadcastChannel handshake completes is a normal user action, not a
+ * failure, so the handshake timeout must not be left to fire afterward and
+ * report a misleading "failed to load" error.
  */
 function onPopoutDialogClosed() {
+  clearPopoutHandshakeTimer();
+  closePopoutHandshakeChannel();
   _popoutDialog = null;
 }
 
