@@ -6,6 +6,18 @@ import { describe, it, expect, beforeEach } from 'vitest';
 // it only additionally needs a DOMParser, which Node doesn't provide, so we
 // stub a minimal hand-rolled one rather than pull in jsdom (this repo's
 // vitest.config.js runs with environment: 'node').
+// Strips tags by re-scanning until a pass makes no further change, so nested
+// constructs (e.g. `<<script>script>`) can't survive a single regex pass.
+function stripTags(html) {
+  let text = html;
+  let prev;
+  do {
+    prev = text;
+    text = text.replace(/<[^>]+>/g, '');
+  } while (text !== prev);
+  return text;
+}
+
 function installDomParserStub() {
   // Good enough for these tests: split a `<body>...</body>`-wrapped fragment
   // out of the HTML string, and derive textContent by stripping tags.
@@ -13,7 +25,7 @@ function installDomParserStub() {
     parseFromString(html) {
       const match = /<body[^>]*>([\s\S]*)<\/body>/i.exec(html);
       const innerHTML = match ? match[1] : html;
-      const textContent = innerHTML.replace(/<[^>]+>/g, '');
+      const textContent = stripTags(innerHTML);
       return { body: { innerHTML, textContent } };
     }
   };
