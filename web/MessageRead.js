@@ -1161,6 +1161,70 @@ function downloadBytes(bytes, filename) {
 
 // ── Reply encrypted ───────────────────────────────────────────────────────────
 
+// Office.js caps `htmlBody` for displayNewMessageForm/Async at 32 KB (32,768)
+// characters and Outlook Classic enforces it synchronously, throwing
+// Sys.ArgumentOutOfRangeException if exceeded. Stay comfortably under that so
+// a large quoted message degrades gracefully instead of crashing the reply.
+const MAX_REPLY_HTML_BODY_LENGTH = 31000;
+
+/**
+ * Builds the quoted-reply HTML block from a decrypted message, capped to fit
+ * under Outlook's htmlBody size limit (see MAX_REPLY_HTML_BODY_LENGTH).
+ *
+ * If the fully-formatted HTML quote would exceed the limit, falls back to a
+ * plain-text quote (never truncates raw HTML, which could leave unbalanced
+ * tags). If even that is too large, truncates the text and appends a visible
+ * truncation notice.
+ *
+ * @param {string} decryptedText
+ * @param {boolean} decryptedIsHtml
+ * @param {string} senderName
+ * @param {string} sentDate
+ * @param {number} [maxLength]
+ * @returns {string} wrapped, size-capped HTML ready to use as formData.htmlBody
+ */
+export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName, sentDate, maxLength = MAX_REPLY_HTML_BODY_LENGTH) {
+  const quoteHeader = `<br>--- Original message${senderName ? ` from ${escHtml(senderName)}` : ''}${sentDate ? ` on ${escHtml(sentDate)}` : ''} ---<br>`;
+
+  const wrapHtml = (innerHtml) =>
+    `<br><div style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` + quoteHeader + innerHtml + `</div>`;
+  const wrapText = (innerHtml) =>
+    `<br><blockquote style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` + quoteHeader + innerHtml + `</blockquote>`;
+  const escapePlainText = (text) => text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+
+  let bodyContent;
+  let wrap;
+  if (decryptedIsHtml) {
+    // Extract body innerHTML — Office rejects nested <html> tags in htmlBody.
+    const doc = new DOMParser().parseFromString(decryptedText, 'text/html');
+    bodyContent = doc.body ? doc.body.innerHTML : decryptedText;
+    wrap = wrapHtml;
+
+    if (wrap(bodyContent).length > maxLength) {
+      // Doesn't fit even with formatting — fall back to plain text so any
+      // further truncation below can't leave unbalanced/broken HTML tags.
+      const plainText = doc.body ? doc.body.textContent : decryptedText;
+      bodyContent = escapePlainText(plainText);
+      wrap = wrapText;
+    }
+  } else {
+    bodyContent = escapePlainText(decryptedText);
+    wrap = wrapText;
+  }
+
+  if (wrap(bodyContent).length > maxLength) {
+    const notice = '<br><em>[Original message truncated — too large to quote in full]</em>';
+    const overhead = wrap('').length + notice.length;
+    bodyContent = bodyContent.slice(0, Math.max(0, maxLength - overhead)) + notice;
+  }
+
+  return wrap(bodyContent);
+}
+
 /**
  * Entry point for both reply buttons.
  *
@@ -1208,31 +1272,13 @@ function handleReplyEncrypted(replyAll) {
   // ── Quoted body ───────────────────────────────────────────────────────────
   let htmlBody = '';
   if (_decryptedText) {
-    const senderName  = item.from?.displayName || item.from?.emailAddress || '';
+    const senderName = item.from?.displayName || item.from?.emailAddress || '';
     const sentDate    = item.dateTimeCreated
       ? item.dateTimeCreated.toLocaleString(undefined, {
           dateStyle: 'medium', timeStyle: 'short',
         })
       : '';
-    const quoteHeader = `<br>--- Original message${senderName ? ` from ${escHtml(senderName)}` : ''}${sentDate ? ` on ${escHtml(sentDate)}` : ''} ---<br>`;
-
-    if (_decryptedIsHtml) {
-      // Extract body innerHTML — Office rejects nested <html> tags in htmlBody.
-      const doc = new DOMParser().parseFromString(_decryptedText, 'text/html');
-      const bodyContent = doc.body ? doc.body.innerHTML : _decryptedText;
-      htmlBody =
-        `<br><div style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` +
-        quoteHeader + bodyContent + `</div>`;
-    } else {
-      const safe = _decryptedText
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
-      htmlBody =
-        `<br><blockquote style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` +
-        quoteHeader + safe + `</blockquote>`;
-    }
+    htmlBody = buildQuotedReplyHtml(_decryptedText, _decryptedIsHtml, senderName, sentDate);
   }
 
   const formData = { toRecipients, ccRecipients, subject, ...(htmlBody ? { htmlBody } : {}) };
