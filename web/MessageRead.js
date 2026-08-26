@@ -1190,11 +1190,7 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
     `<br><div style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` + quoteHeader + innerHtml + `</div>`;
   const wrapText = (innerHtml) =>
     `<br><blockquote style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` + quoteHeader + innerHtml + `</blockquote>`;
-  const escapePlainText = (text) => text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>');
+  const escapePlainText = (text) => escHtml(text).replace(/\n/g, '<br>');
 
   let bodyContent;
   let wrap;
@@ -1222,7 +1218,12 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
     bodyContent = bodyContent.slice(0, Math.max(0, maxLength - overhead)) + notice;
   }
 
-  return wrap(bodyContent);
+  const result = wrap(bodyContent);
+  // Hard backstop: if maxLength is smaller than the fixed wrap+notice
+  // overhead itself, the slice above still leaves `result` over budget.
+  // Guarantee the size contract always holds, even for a degenerate
+  // maxLength — this matters more than well-formed HTML in that case.
+  return result.length > maxLength ? result.slice(0, maxLength) : result;
 }
 
 /**

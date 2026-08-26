@@ -76,4 +76,10 @@ describe('buildQuotedReplyHtml', () => {
 
     expect(result.length).toBeLessThanOrEqual(300);
   });
+
+  it('never exceeds maxLength even when maxLength is smaller than the fixed wrap+notice overhead', () => {
+    const result = buildQuotedReplyHtml('a'.repeat(500), false, '', '', 50);
+
+    expect(result.length).toBeLessThanOrEqual(50);
+  });
 });
