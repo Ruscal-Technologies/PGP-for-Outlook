@@ -1196,8 +1196,18 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
   let wrap;
   if (decryptedIsHtml) {
     // Extract body innerHTML — Office rejects nested <html> tags in htmlBody.
+    // Carry any <style> block(s) from <head> along with it: Outlook Desktop's
+    // Word-based HTML export commonly relies on a <style> rule (e.g.
+    // `p.MsoNormal { margin:0 }`) to render single-spaced lines correctly —
+    // dropping it (as a bare doc.body.innerHTML would) makes default browser
+    // paragraph margins reappear, inserting visible blank lines that don't
+    // exist in the decrypt preview or pop-out (which render the full document,
+    // <head> intact).
     const doc = new DOMParser().parseFromString(decryptedText, 'text/html');
-    bodyContent = doc.body ? doc.body.innerHTML : decryptedText;
+    const styleBlocks = doc.head
+      ? Array.from(doc.head.querySelectorAll('style')).map(s => s.outerHTML).join('')
+      : '';
+    bodyContent = styleBlocks + (doc.body ? doc.body.innerHTML : decryptedText);
     wrap = wrapHtml;
 
     if (wrap(bodyContent).length > maxLength) {

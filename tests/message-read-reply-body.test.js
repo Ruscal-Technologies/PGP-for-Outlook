@@ -19,14 +19,24 @@ function stripTags(html) {
 }
 
 function installDomParserStub() {
-  // Good enough for these tests: split a `<body>...</body>`-wrapped fragment
-  // out of the HTML string, and derive textContent by stripping tags.
+  // Good enough for these tests: split `<head>...</head>` and `<body>...</body>`
+  // fragments out of the HTML string, derive textContent by stripping tags,
+  // and expose head.querySelectorAll('style') the way a real Document does.
   global.DOMParser = class {
     parseFromString(html) {
-      const match = /<body[^>]*>([\s\S]*)<\/body>/i.exec(html);
-      const innerHTML = match ? match[1] : html;
+      const bodyMatch = /<body[^>]*>([\s\S]*)<\/body>/i.exec(html);
+      const innerHTML = bodyMatch ? bodyMatch[1] : html;
       const textContent = stripTags(innerHTML);
-      return { body: { innerHTML, textContent } };
+
+      const headMatch = /<head[^>]*>([\s\S]*)<\/head>/i.exec(html);
+      const styleTags = headMatch
+        ? [...headMatch[1].matchAll(/<style[^>]*>[\s\S]*?<\/style>/gi)].map(m => ({ outerHTML: m[0] }))
+        : [];
+
+      return {
+        head: { querySelectorAll: (sel) => (sel === 'style' ? styleTags : []) },
+        body: { innerHTML, textContent },
+      };
     }
   };
 }
@@ -93,5 +103,34 @@ describe('buildQuotedReplyHtml', () => {
     const result = buildQuotedReplyHtml('a'.repeat(500), false, '', '', 50);
 
     expect(result.length).toBeLessThanOrEqual(50);
+  });
+
+  it('carries <style> rules from <head> into the quote, so paragraph spacing renders like the preview/pop-out', () => {
+    // Mirrors Outlook Desktop's Word-based HTML export, which relies on a
+    // <style> rule to collapse paragraph margins -- without it, the reply
+    // compose window falls back to default browser <p> margins and grows
+    // extra blank lines the decrypt preview/pop-out never showed.
+    const html = '<html><head><style>p.MsoNormal { margin: 0; }</style></head>' +
+      '<body><p class="MsoNormal">Line 1</p><p class="MsoNormal">Line 2</p></body></html>';
+    const result = buildQuotedReplyHtml(html, true, '', '');
+
+    expect(result).toContain('<style>p.MsoNormal { margin: 0; }</style>');
+    expect(result).toContain('<p class="MsoNormal">Line 1</p>');
+    // The style block must precede the quoted content it applies to.
+    expect(result.indexOf('<style>')).toBeLessThan(result.indexOf('Line 1'));
+  });
+
+  it('does not reintroduce a nested <head> element (Office rejects nested <html> tags in htmlBody)', () => {
+    const html = '<html><head><style>body { color: red; }</style></head><body><p>Hi</p></body></html>';
+    const result = buildQuotedReplyHtml(html, true, '', '');
+
+    expect(result).not.toContain('<head>');
+    expect(result).not.toContain('<html>');
+  });
+
+  it('produces an empty style prefix when the HTML has no <head>/<style>', () => {
+    const result = buildQuotedReplyHtml('<div>Hi there</div>', true, '', '');
+    expect(result).toContain('<div>Hi there</div>');
+    expect(result).not.toContain('<style>');
   });
 });

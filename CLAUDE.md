@@ -135,6 +135,8 @@ Attachments are encrypted individually to `filename.ext.pgp`. Inline (clipboard-
 
 `MessageRead.js`'s reply buttons call `Office.context.mailbox.displayNewMessageFormAsync`/`displayNewMessageForm` with a quoted copy of the decrypted body as `formData.htmlBody`. Office.js caps `htmlBody` at 32 KB (32,768 characters), and Outlook Classic enforces this synchronously, throwing `Sys.ArgumentOutOfRangeException` if exceeded. `buildQuotedReplyHtml()` (exported from `MessageRead.js`) keeps the quote under that limit: it returns the fully-formatted HTML quote unchanged when it fits; if the formatted HTML would exceed the limit it falls back to a plain-text quote (never truncates raw HTML, to avoid emitting unbalanced tags); if even that is too large, it truncates the text and appends a visible "[Original message truncated...]" notice rather than letting the whole reply fail.
 
+Office also rejects a nested `<html>` tag inside `htmlBody`, so the HTML quote uses only `doc.body.innerHTML` from the decrypted document — but it explicitly carries forward any `<style>` block(s) from `<head>` too. Outlook Desktop's Word-based HTML export commonly relies on such a rule (e.g. `p.MsoNormal { margin:0 }`) to render single-spaced lines correctly; the decrypt preview iframe and pop-out window render the full document (`<head>` intact) so they're unaffected, but a bare `doc.body.innerHTML` would silently drop it, letting default browser paragraph margins reappear as extra blank lines in the reply compose window only.
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. The
