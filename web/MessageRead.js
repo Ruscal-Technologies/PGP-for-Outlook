@@ -25,6 +25,7 @@ import {
   getSessionEmail, getSessionShortId, onSessionCleared,
 } from './js/pgp/session-cache.js';
 import { formatDecryptedContentAsHtml, formatDecryptedContentAsPlainTextHtml } from './js/pgp/quoted-content.js';
+import { getReplyHandoffChannelName } from './js/pgp/reply-handoff-channel.js';
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
@@ -1229,14 +1230,6 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
   return result.length > maxLength ? result.slice(0, maxLength) : result;
 }
 
-// Channel name for the large-message native-reply handoff (see
-// openNativeReplyWithHandoff). Fixed/well-known, unlike the pop-out dialog's
-// per-token channel name: displayReplyForm/displayReplyAllForm give no way
-// to control the new compose window's URL, so there's nowhere to embed a
-// token for it to read on load. The token still travels inside each
-// message's payload, to correlate a broadcast with its ack.
-const REPLY_HANDOFF_CHANNEL_NAME = 'pgp_reply_handoff';
-
 // How long to keep re-broadcasting the handoff before giving up and falling
 // back to the original displayNewMessageForm + buildQuotedReplyHtml path.
 const REPLY_HANDOFF_TIMEOUT_MS = 10000;
@@ -1392,6 +1385,15 @@ function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients, subjec
   const item = Office.context.mailbox.item;
   const fallBack = () => openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, true);
 
+  // Captured now, not read live from the broadcast closure below: the user
+  // could decrypt a *different* message in the reading pane while this
+  // handoff is still retrying (up to REPLY_HANDOFF_TIMEOUT_MS later), which
+  // would otherwise reassign _decryptedText/_decryptedIsHtml out from under
+  // an in-flight handoff and broadcast the wrong message's plaintext into
+  // this reply.
+  const decryptedText = _decryptedText;
+  const decryptedIsHtml = _decryptedIsHtml;
+
   try {
     if (replyAll) item.displayReplyAllForm();
     else item.displayReplyForm();
@@ -1403,7 +1405,7 @@ function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients, subjec
 
   let channel;
   try {
-    channel = new BroadcastChannel(REPLY_HANDOFF_CHANNEL_NAME);
+    channel = new BroadcastChannel(getReplyHandoffChannelName(item.conversationId));
   } catch (e) {
     console.error('Native reply: BroadcastChannel construction failed', e);
     fallBack();
@@ -1432,7 +1434,7 @@ function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients, subjec
   };
 
   const broadcast = () => {
-    channel.postMessage({ type: 'pgp-reply-handoff', token, text: _decryptedText, isHtml: _decryptedIsHtml });
+    channel.postMessage({ type: 'pgp-reply-handoff', token, text: decryptedText, isHtml: decryptedIsHtml });
   };
   broadcast();
   broadcastTimer = setInterval(broadcast, REPLY_HANDOFF_BROADCAST_INTERVAL_MS);

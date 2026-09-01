@@ -50,6 +50,7 @@ import {
   getCompanyKeyEmails, fetchCompanyKeys,
 } from './js/pgp/org-config.js';
 import { formatDecryptedContentAsHtml } from './js/pgp/quoted-content.js';
+import { getReplyHandoffChannelName } from './js/pgp/reply-handoff-channel.js';
 
 // ── Session status ────────────────────────────────────────────────────────────
 
@@ -103,6 +104,15 @@ let _isWebOutlook = false;
  * @type {boolean}
  */
 let _has18 = false;
+
+/**
+ * True when the host meets Mailbox 1.10. Required for getComposeTypeAsync,
+ * used to confirm this compose window is actually a reply before setting up
+ * the reply-handoff BroadcastChannel listener (see setupReplyHandoffListener).
+ * Set once in Office.onReady via Office.context.requirements.isSetSupported().
+ * @type {boolean}
+ */
+let _has110 = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -764,31 +774,97 @@ function setBodyAsync(armoredText) {
 // body) instead of building one from scratch — that quotes the ORIGINAL
 // message as Outlook has it: still PGP-armored, since Outlook has no notion
 // of decryption. MessageRead.js then hands the decrypted plaintext to this
-// window over a fixed, well-known BroadcastChannel (there's no way for it to
-// pass a per-instance token into this window's URL, unlike the pop-out
-// dialog), because Body.setAsync (1 MB limit) — called from inside this
-// compose window's own script context — is the only body-write path not
-// bound by the 32 KB htmlBody cap shared by displayNewMessageForm and
+// window over a BroadcastChannel (there's no way for it to pass a
+// per-instance token into this window's URL, unlike the pop-out dialog),
+// because Body.setAsync (1 MB limit) — called from inside this compose
+// window's own script context — is the only body-write path not bound by
+// the 32 KB htmlBody cap shared by displayNewMessageForm and
 // displayReplyForm/displayReplyAllForm.
 //
-// This listens unconditionally from module load (before Office.onReady) so
-// it's ready as early as possible; it's a no-op for every ordinary compose
-// window (new message, forward, reply-to-unencrypted-mail) unless a matching
-// broadcast actually arrives.
+// BroadcastChannel is same-origin-wide, not scoped to just these two
+// windows — any script running anywhere in the add-in's origin could listen
+// in on decrypted plaintext if this were unconditional and indefinite. Two
+// mitigations keep that blast radius narrow:
+//   - The listener is only set up when this compose window is confirmed to
+//     be a reply (getComposeTypeAsync, Mailbox 1.10+) — an ordinary new
+//     message or forward never listens at all. Falls back to listening
+//     unconditionally on older hosts that can't be asked (see setupReplyHandoffListener).
+//   - Once set up, it only listens for REPLY_HANDOFF_LISTEN_TIMEOUT_MS — a
+//     reply window that was never the target of an actual handoff (e.g. the
+//     user used Outlook's own Reply button on an encrypted-but-undecrypted
+//     message) stops listening after a short grace period rather than for
+//     the rest of the window's lifetime.
+// The channel name itself is also derived from the conversation ID
+// (getReplyHandoffChannelName) rather than fixed, so a listener needs to
+// already know which conversation to target — see that module's docblock
+// for why this isn't a secrecy boundary on its own.
 
-const REPLY_HANDOFF_CHANNEL_NAME = 'pgp_reply_handoff';
+// Matches (with margin) MessageRead.js's REPLY_HANDOFF_TIMEOUT_MS, so a
+// reply window that's genuinely waiting on a handoff isn't cut off before
+// the sender itself gives up and falls back.
+const REPLY_HANDOFF_LISTEN_TIMEOUT_MS = 12000;
 
 let _replyHandoffConsumed = false;
 
-if (typeof BroadcastChannel === 'function') {
-  const channel = new BroadcastChannel(REPLY_HANDOFF_CHANNEL_NAME);
-  channel.onmessage = (event) => {
+/**
+ * Called from Office.onReady with no arguments in production (`has110`
+ * defaults to the real feature-detected _has110). Exported, and `has110`
+ * made an explicit parameter rather than only reading module state, so
+ * tests can exercise both branches deterministically without needing
+ * Office.onReady itself to run.
+ *
+ * @param {boolean} [has110]
+ */
+export async function setupReplyHandoffListener(has110 = _has110) {
+  if (typeof BroadcastChannel !== 'function') return;
+
+  if (has110) {
+    const composeType = await getComposeTypeAsync().catch((e) => {
+      console.error('Reply handoff: getComposeTypeAsync failed', e);
+      return null; // unknown -- fall through and listen anyway, see below
+    });
+    if (composeType !== null && composeType !== Office.MailboxEnums.ComposeType.Reply) return;
+  }
+  // _has110 false: can't confirm compose type, so listen anyway (broader
+  // exposure on older hosts only, still bounded by the timeout below).
+
+  const channelName = getReplyHandoffChannelName(Office.context.mailbox.item.conversationId);
+  let channel;
+  try {
+    channel = new BroadcastChannel(channelName);
+  } catch (e) {
+    console.error('Reply handoff: BroadcastChannel construction failed', e);
+    return;
+  }
+
+  const idleTimer = setTimeout(() => {
+    if (!_replyHandoffConsumed) channel.close();
+  }, REPLY_HANDOFF_LISTEN_TIMEOUT_MS);
+
+  channel.onmessage = async (event) => {
     const data = event.data;
     if (!data || data.type !== 'pgp-reply-handoff' || _replyHandoffConsumed) return;
     _replyHandoffConsumed = true;
-    channel.postMessage({ type: 'pgp-reply-handoff-ack', token: data.token });
-    applyReplyHandoff(data.text, data.isHtml);
+    clearTimeout(idleTimer);
+
+    const success = await applyReplyHandoff(data.text, data.isHtml);
+    // Only ack on confirmed success -- an ack that arrives despite a failed
+    // splice would make MessageRead.js treat this as done and never trigger
+    // its own fallback, leaving the user with a still-armored body and no
+    // backup window. Staying silent here lets that timeout-based fallback
+    // fire instead.
+    if (success) channel.postMessage({ type: 'pgp-reply-handoff-ack', token: data.token });
+    channel.close();
   };
+}
+
+function getComposeTypeAsync() {
+  return new Promise((resolve, reject) => {
+    Office.context.mailbox.item.getComposeTypeAsync((result) => {
+      if (result.status === Office.AsyncResultStatus.Succeeded) resolve(result.value.composeType);
+      else reject(new Error(result.error.message));
+    });
+  });
 }
 
 /**
@@ -801,6 +877,7 @@ if (typeof BroadcastChannel === 'function') {
  *
  * @param {string} text - Decrypted payload from MessageRead.js
  * @param {boolean} isHtml - True when the payload is HTML
+ * @returns {Promise<boolean>} true only if the splice actually succeeded
  */
 async function applyReplyHandoff(text, isHtml) {
   try {
@@ -808,13 +885,15 @@ async function applyReplyHandoff(text, isHtml) {
     const { found, before, after } = stripPgpArmorBlock(bodyHtml);
     if (!found) {
       showStatus('Could not find the encrypted message in this reply to replace — please verify the body before sending.', 'warning');
-      return;
+      return false;
     }
     const formattedContent = formatDecryptedContentAsHtml(text, isHtml);
     await setBodyHtmlAsync(before + formattedContent + after);
     showStatus('Decrypted message inserted into this reply.', 'success');
+    return true;
   } catch (e) {
     showStatus(`Could not automatically insert the decrypted message into this reply: ${e.message} — please verify the body before sending.`, 'warning');
+    return false;
   }
 }
 
@@ -1099,6 +1178,11 @@ Office.onReady(async () => {
   const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
   _isWebOutlook = Office.context.platform === Office.PlatformType.OfficeOnline;
   _has18 = Office.context.requirements.isSetSupported('Mailbox', '1.8');
+  _has110 = Office.context.requirements.isSetSupported('Mailbox', '1.10');
+
+  // Fire-and-forget: inert for every ordinary compose window unless a
+  // matching reply-handoff broadcast actually arrives (see its own docblock).
+  setupReplyHandoffListener();
 
   // Load org config
   await loadOrgConfig(userEmail);

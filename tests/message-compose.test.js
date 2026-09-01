@@ -80,32 +80,59 @@ describe('stripPgpArmorBlock', () => {
 });
 
 describe('reply handoff (BroadcastChannel)', () => {
-  it('acks a matching handoff broadcast and splices the decrypted content into the body, replacing the armor', async () => {
+  const CONVERSATION_ID = 'conversation-test-1';
+
+  // Waits for `promise` to settle, or for `ms` to pass with nothing
+  // happening -- used to positively assert "no ack arrives" without waiting
+  // out a full real timeout.
+  function raceTimeout(promise, ms) {
+    return Promise.race([
+      promise.then((v) => ({ settled: true, value: v })),
+      new Promise((resolve) => setTimeout(() => resolve({ settled: false }), ms)),
+    ]);
+  }
+
+  function makeOfficeStub({ bodyHtml, composeType }) {
     let savedBody = null;
-    global.Office = {
+    let setAsyncCalled = false;
+    const office = {
       onReady: () => {},
       CoercionType: { Html: 'html', Text: 'text' },
       AsyncResultStatus: { Succeeded: 'succeeded', Failed: 'failed' },
+      MailboxEnums: { ComposeType: { Reply: 'reply', NewMail: 'newMail', Forward: 'forward' } },
       context: {
         mailbox: {
           item: {
+            conversationId: CONVERSATION_ID,
+            getComposeTypeAsync: (cb) => cb({ status: 'succeeded', value: { composeType } }),
             body: {
-              getAsync: (_coercionType, cb) => cb({
-                status: 'succeeded',
-                value: `<div>Reply header info</div><div>${ARMOR}</div>`,
-              }),
-              setAsync: (html, _options, cb) => { savedBody = html; cb({ status: 'succeeded' }); },
+              getAsync: (_coercionType, cb) => cb({ status: 'succeeded', value: bodyHtml }),
+              setAsync: (html, _options, cb) => { savedBody = html; setAsyncCalled = true; cb({ status: 'succeeded' }); },
             },
           },
         },
       },
     };
+    return { office, getSavedBody: () => savedBody, wasSetAsyncCalled: () => setAsyncCalled };
+  }
+
+  beforeEach(() => {
     document.body.innerHTML = '<div id="status-bar" class="pgp-hidden"></div>';
+  });
+
+  it('acks a matching handoff broadcast and splices the decrypted content into the body, replacing the armor', async () => {
+    const { office, getSavedBody } = makeOfficeStub({
+      bodyHtml: `<div>Reply header info</div><div>${ARMOR}</div>`,
+      composeType: 'reply',
+    });
+    global.Office = office;
 
     vi.resetModules();
-    await import('../web/MessageCompose.js');
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true); // has110=true -> exercises the getComposeTypeAsync gate
 
-    const sender = new BroadcastChannel('pgp_reply_handoff');
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(CONVERSATION_ID));
     const acked = new Promise((resolve) => {
       sender.onmessage = (event) => {
         if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
@@ -114,43 +141,27 @@ describe('reply handoff (BroadcastChannel)', () => {
     sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-1', text: 'the decrypted message', isHtml: false });
 
     await expect(acked).resolves.toBe('test-token-1');
-    // applyReplyHandoff's body-write happens after the ack in the same async
-    // flow -- give its pending promises a turn to settle before asserting.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
     sender.close();
+
+    const savedBody = getSavedBody();
     expect(savedBody).toContain('Reply header info');
     expect(savedBody).toContain('the decrypted message');
     expect(savedBody).not.toContain('BEGIN PGP MESSAGE');
   });
 
-  it('leaves the body untouched and warns when no armor block is found in the native quote', async () => {
-    let setAsyncCalled = false;
-    global.Office = {
-      onReady: () => {},
-      CoercionType: { Html: 'html', Text: 'text' },
-      AsyncResultStatus: { Succeeded: 'succeeded', Failed: 'failed' },
-      context: {
-        mailbox: {
-          item: {
-            body: {
-              getAsync: (_coercionType, cb) => cb({ status: 'succeeded', value: '<div>no armor here</div>' }),
-              setAsync: (_html, _options, cb) => { setAsyncCalled = true; cb({ status: 'succeeded' }); },
-            },
-          },
-        },
-      },
-    };
-    const statusEl = document.createElement('div');
-    statusEl.id = 'status-bar';
-    statusEl.className = 'pgp-hidden';
-    document.body.innerHTML = '';
-    document.body.appendChild(statusEl);
+  it('does not ack, and does not write the body, when no armor block is found (so MessageRead.js\'s fallback can still trigger)', async () => {
+    const { office, wasSetAsyncCalled } = makeOfficeStub({
+      bodyHtml: '<div>no armor here</div>',
+      composeType: 'reply',
+    });
+    global.Office = office;
 
     vi.resetModules();
-    await import('../web/MessageCompose.js');
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
 
-    const sender = new BroadcastChannel('pgp_reply_handoff');
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(CONVERSATION_ID));
     const acked = new Promise((resolve) => {
       sender.onmessage = (event) => {
         if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
@@ -158,11 +169,79 @@ describe('reply handoff (BroadcastChannel)', () => {
     });
     sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-2', text: 'decrypted text', isHtml: false });
 
-    await expect(acked).resolves.toBe('test-token-2');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
+    const result = await raceTimeout(acked, 300);
     sender.close();
-    expect(setAsyncCalled).toBe(false);
-    expect(statusEl.textContent).toContain('Could not find the encrypted message');
+
+    expect(result.settled).toBe(false); // no ack -- read pane's timeout fallback must still be able to fire
+    expect(wasSetAsyncCalled()).toBe(false);
+    expect(document.getElementById('status-bar').textContent).toContain('Could not find the encrypted message');
+  });
+
+  it('does not ack when the body write itself fails', async () => {
+    const office = {
+      onReady: () => {},
+      CoercionType: { Html: 'html', Text: 'text' },
+      AsyncResultStatus: { Succeeded: 'succeeded', Failed: 'failed' },
+      MailboxEnums: { ComposeType: { Reply: 'reply', NewMail: 'newMail', Forward: 'forward' } },
+      context: {
+        mailbox: {
+          item: {
+            conversationId: CONVERSATION_ID,
+            getComposeTypeAsync: (cb) => cb({ status: 'succeeded', value: { composeType: 'reply' } }),
+            body: {
+              getAsync: (_coercionType, cb) => cb({ status: 'succeeded', value: `<div>${ARMOR}</div>` }),
+              setAsync: (_html, _options, cb) => cb({ status: 'failed', error: { message: 'simulated setAsync failure' } }),
+            },
+          },
+        },
+      },
+    };
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(CONVERSATION_ID));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-3', text: 'decrypted text', isHtml: false });
+
+    const result = await raceTimeout(acked, 300);
+    sender.close();
+
+    expect(result.settled).toBe(false);
+    expect(document.getElementById('status-bar').textContent).toContain('Could not automatically insert');
+  });
+
+  it('never sets up a listener at all for a non-reply compose window (newMail/forward)', async () => {
+    const { office, wasSetAsyncCalled } = makeOfficeStub({
+      bodyHtml: `<div>${ARMOR}</div>`,
+      composeType: 'newMail',
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(CONVERSATION_ID));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-4', text: 'decrypted text', isHtml: false });
+
+    const result = await raceTimeout(acked, 300);
+    sender.close();
+
+    expect(result.settled).toBe(false);
+    expect(wasSetAsyncCalled()).toBe(false);
   });
 });
