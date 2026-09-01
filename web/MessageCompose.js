@@ -49,6 +49,7 @@ import {
   loadOrgConfig, isCompanyKeyEnabled, isCompanyKeyRequired,
   getCompanyKeyEmails, fetchCompanyKeys,
 } from './js/pgp/org-config.js';
+import { formatDecryptedContentAsHtml } from './js/pgp/quoted-content.js';
 
 // ── Session status ────────────────────────────────────────────────────────────
 
@@ -754,6 +755,159 @@ function setBodyAsync(armoredText) {
     .replace(/>/g, '&gt;');
   const html = `<html><body><pre style="font-family:monospace;white-space:pre-wrap;">${safe}</pre></body></html>`;
   return setBodyHtmlAsync(html);
+}
+
+// ── Reply handoff (native-reply armor splice) ─────────────────────────────────
+//
+// For large decrypted messages, MessageRead.js's Reply/Reply All opens
+// Outlook's NATIVE reply (displayReplyForm/displayReplyAllForm, no custom
+// body) instead of building one from scratch — that quotes the ORIGINAL
+// message as Outlook has it: still PGP-armored, since Outlook has no notion
+// of decryption. MessageRead.js then hands the decrypted plaintext to this
+// window over a fixed, well-known BroadcastChannel (there's no way for it to
+// pass a per-instance token into this window's URL, unlike the pop-out
+// dialog), because Body.setAsync (1 MB limit) — called from inside this
+// compose window's own script context — is the only body-write path not
+// bound by the 32 KB htmlBody cap shared by displayNewMessageForm and
+// displayReplyForm/displayReplyAllForm.
+//
+// This listens unconditionally from module load (before Office.onReady) so
+// it's ready as early as possible; it's a no-op for every ordinary compose
+// window (new message, forward, reply-to-unencrypted-mail) unless a matching
+// broadcast actually arrives.
+
+const REPLY_HANDOFF_CHANNEL_NAME = 'pgp_reply_handoff';
+
+let _replyHandoffConsumed = false;
+
+if (typeof BroadcastChannel === 'function') {
+  const channel = new BroadcastChannel(REPLY_HANDOFF_CHANNEL_NAME);
+  channel.onmessage = (event) => {
+    const data = event.data;
+    if (!data || data.type !== 'pgp-reply-handoff' || _replyHandoffConsumed) return;
+    _replyHandoffConsumed = true;
+    channel.postMessage({ type: 'pgp-reply-handoff-ack', token: data.token });
+    applyReplyHandoff(data.text, data.isHtml);
+  };
+}
+
+/**
+ * Reads the current (Outlook-native-quoted) body, strips out the PGP armor
+ * block Outlook quoted from the original encrypted message, and splices the
+ * decrypted plaintext in at that location.
+ *
+ * Leaves the body untouched (with a warning) if the armor block can't be
+ * found, or if anything else fails — never guesses at a partial edit.
+ *
+ * @param {string} text - Decrypted payload from MessageRead.js
+ * @param {boolean} isHtml - True when the payload is HTML
+ */
+async function applyReplyHandoff(text, isHtml) {
+  try {
+    const bodyHtml = await getBodyAsync(Office.CoercionType.Html);
+    const { found, before, after } = stripPgpArmorBlock(bodyHtml);
+    if (!found) {
+      showStatus('Could not find the encrypted message in this reply to replace — please verify the body before sending.', 'warning');
+      return;
+    }
+    const formattedContent = formatDecryptedContentAsHtml(text, isHtml);
+    await setBodyHtmlAsync(before + formattedContent + after);
+    showStatus('Decrypted message inserted into this reply.', 'success');
+  } catch (e) {
+    showStatus(`Could not automatically insert the decrypted message into this reply: ${e.message} — please verify the body before sending.`, 'warning');
+  }
+}
+
+// Internal splitting delimiter for stripPgpArmorBlock() — a Private Use Area
+// character sequence that can never appear in real email text, and survives
+// HTML (de)serialization unescaped (no &, <, >, or ").
+const ARMOR_SPLICE_MARKER = '__PGP_ARMOR_SPLICE__';
+
+/**
+ * Locates the PGP armor block (`-----BEGIN PGP MESSAGE-----` through
+ * `-----END PGP MESSAGE-----`, inclusive) inside an HTML body string and
+ * splits the HTML around it, so the caller can splice something else in at
+ * that location.
+ *
+ * The armor block may be split across multiple sibling text nodes/lines the
+ * way Outlook's native reply-quoting renders a quoted message (including a
+ * `<pre>`-wrapped block — this add-in's own setBodyAsync() sends the armor
+ * that way, so a reply to one of its own messages commonly quotes it back
+ * inside a `<pre>`). This walks a detached DOM the same way MessageRead.js's
+ * extractArmorFromHtml() does (same BLOCK-element/`<br>`/`<pre>` handling),
+ * but additionally tracks which text node each character came from, so the
+ * located range can be mapped back to specific nodes and removed — rather
+ * than only extracted, like extractArmorFromHtml() does.
+ *
+ * Removal itself works by replacing the range with a unique marker inside
+ * the DOM, serializing once, then splitting the resulting HTML string on
+ * that marker — this guarantees valid, unmangled surrounding HTML regardless
+ * of how many nodes the range spans, without needing to reconstruct partial
+ * DOM structure by hand.
+ *
+ * @param {string} html
+ * @returns {{found: boolean, before?: string, after?: string}}
+ */
+export function stripPgpArmorBlock(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+
+  const BLOCK = new Set([
+    'div', 'p', 'li', 'blockquote', 'tr',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'article', 'section', 'header', 'footer', 'html', 'body',
+  ]);
+  const SKIP = new Set(['style', 'script', 'head', 'title', 'noscript']);
+
+  // { node, start, end } — [start, end) is this node's exact character range
+  // within `flat`, always equal to flat.slice(start, end) === node.textContent.
+  const segments = [];
+  let flat = '';
+
+  function walk(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const start = flat.length;
+      flat += node.textContent;
+      segments.push({ node, start, end: flat.length });
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = node.tagName.toLowerCase();
+    if (SKIP.has(tag)) return;
+    if (tag === 'br') { flat += '\n'; return; }
+    if (tag === 'pre') {
+      flat += '\n';
+      const start = flat.length;
+      flat += node.textContent;
+      segments.push({ node, start, end: flat.length });
+      flat += '\n';
+      return;
+    }
+    for (const child of Array.from(node.childNodes)) walk(child);
+    if (BLOCK.has(tag)) flat += '\n';
+  }
+  walk(div);
+
+  const beginIdx = flat.indexOf('-----BEGIN PGP MESSAGE-----');
+  if (beginIdx === -1) return { found: false };
+  const endMarkerIdx = flat.indexOf('-----END PGP MESSAGE-----', beginIdx);
+  if (endMarkerIdx === -1) return { found: false };
+  const endIdx = endMarkerIdx + '-----END PGP MESSAGE-----'.length;
+
+  let markerPlaced = false;
+  for (const seg of segments) {
+    if (seg.end <= beginIdx || seg.start >= endIdx) continue; // no overlap
+
+    const localBegin = Math.max(0, beginIdx - seg.start);
+    const localEnd = Math.min(seg.end - seg.start, endIdx - seg.start);
+    const text = seg.node.textContent;
+    seg.node.textContent = text.slice(0, localBegin) + (markerPlaced ? '' : ARMOR_SPLICE_MARKER) + text.slice(localEnd);
+    markerPlaced = true;
+  }
+
+  const spliced = div.innerHTML;
+  const [before, after] = spliced.split(ARMOR_SPLICE_MARKER);
+  return { found: true, before, after };
 }
 
 /**

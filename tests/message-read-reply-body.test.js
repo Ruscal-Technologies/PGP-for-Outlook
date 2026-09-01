@@ -42,11 +42,12 @@ function installDomParserStub() {
 }
 
 let buildQuotedReplyHtml;
+let REPLY_TRUNCATION_NOTICE;
 
 beforeEach(async () => {
   global.Office = { onReady: () => {} };
   installDomParserStub();
-  ({ buildQuotedReplyHtml } = await import('../web/MessageRead.js'));
+  ({ buildQuotedReplyHtml, REPLY_TRUNCATION_NOTICE } = await import('../web/MessageRead.js'));
 });
 
 describe('buildQuotedReplyHtml', () => {
@@ -90,6 +91,16 @@ describe('buildQuotedReplyHtml', () => {
 
     expect(result).toContain('[Original message truncated — too large to quote in full]');
     expect(result.length).toBeLessThanOrEqual(300);
+  });
+
+  it('exports REPLY_TRUNCATION_NOTICE matching the notice actually appended on truncation', () => {
+    expect(REPLY_TRUNCATION_NOTICE).toBe('<br><em>[Original message truncated — too large to quote in full]</em>');
+
+    const result = buildQuotedReplyHtml('a'.repeat(500), false, '', '', 300);
+    expect(result).toContain(REPLY_TRUNCATION_NOTICE);
+
+    const shortResult = buildQuotedReplyHtml('hi', false, '', '');
+    expect(shortResult).not.toContain(REPLY_TRUNCATION_NOTICE);
   });
 
   it('produces a result that never exceeds maxLength for large HTML input', () => {

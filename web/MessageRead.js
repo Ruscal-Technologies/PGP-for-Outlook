@@ -24,6 +24,7 @@ import {
   cacheSessionKey, getSessionKey, clearSessionKey,
   getSessionEmail, getSessionShortId, onSessionCleared,
 } from './js/pgp/session-cache.js';
+import { formatDecryptedContentAsHtml, formatDecryptedContentAsPlainTextHtml } from './js/pgp/quoted-content.js';
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
@@ -683,15 +684,16 @@ function openDecryptedPopup(text, isHtml, subject = '') {
 }
 
 /**
- * Generates the per-session BroadcastChannel token. Since the channel is
- * kept open for the life of the dialog (to survive a reload) and the token
- * is the only thing gating who can join it and receive the plaintext, this
- * must be unguessable — crypto.randomUUID() when available, otherwise
+ * Generates an unguessable per-session token to gate/correlate a
+ * BroadcastChannel handoff — used both for the pop-out dialog's payload
+ * channel (kept open for the life of the dialog, to survive a reload) and
+ * the reply native-quote handoff to MessageCompose.js (see
+ * handleReplyEncrypted). crypto.randomUUID() when available, otherwise
  * crypto.getRandomValues() (available anywhere BroadcastChannel is; unlike
- * randomUUID, it doesn't require a secure context), never Date.now()/
+ * randomUUID, it doesn't require a secure context) — never Date.now()/
  * Math.random(), which are guessable.
  */
-function generatePopoutToken() {
+function generateChannelToken() {
   if (crypto.randomUUID) return crypto.randomUUID();
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -743,7 +745,7 @@ export function openDecryptedPopupDialog(text, isHtml, subject = '') {
   // what keeps a fresh attempt from immediately hitting DialogAlreadyOpened.
   closePopoutDialogQuietly();
 
-  const token = generatePopoutToken();
+  const token = generateChannelToken();
   let channel;
   try {
     channel = new BroadcastChannel('pgp_popout_' + token);
@@ -1167,6 +1169,12 @@ function downloadBytes(bytes, filename) {
 // a large quoted message degrades gracefully instead of crashing the reply.
 const MAX_REPLY_HTML_BODY_LENGTH = 31000;
 
+// Exported so handleReplyEncrypted can detect "this message needed the old
+// path's truncation" without duplicating the size check — see its own
+// size-based branch between this (small messages) and the native-reply +
+// BroadcastChannel handoff path (large messages).
+export const REPLY_TRUNCATION_NOTICE = '<br><em>[Original message truncated — too large to quote in full]</em>';
+
 /**
  * Builds the quoted-reply HTML block from a decrypted message, capped to fit
  * under Outlook's htmlBody size limit (see MAX_REPLY_HTML_BODY_LENGTH).
@@ -1190,42 +1198,27 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
     `<br><div style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` + quoteHeader + innerHtml + `</div>`;
   const wrapText = (innerHtml) =>
     `<br><blockquote style="border-left:2px solid #888;padding-left:8px;margin-left:4px;">` + quoteHeader + innerHtml + `</blockquote>`;
-  const escapePlainText = (text) => escHtml(text).replace(/\n/g, '<br>');
 
   let bodyContent;
   let wrap;
   if (decryptedIsHtml) {
-    // Extract body innerHTML — Office rejects nested <html> tags in htmlBody.
-    // Carry any <style> block(s) from <head> along with it: Outlook Desktop's
-    // Word-based HTML export commonly relies on a <style> rule (e.g.
-    // `p.MsoNormal { margin:0 }`) to render single-spaced lines correctly —
-    // dropping it (as a bare doc.body.innerHTML would) makes default browser
-    // paragraph margins reappear, inserting visible blank lines that don't
-    // exist in the decrypt preview or pop-out (which render the full document,
-    // <head> intact).
-    const doc = new DOMParser().parseFromString(decryptedText, 'text/html');
-    const styleBlocks = doc.head
-      ? Array.from(doc.head.querySelectorAll('style')).map(s => s.outerHTML).join('')
-      : '';
-    bodyContent = styleBlocks + (doc.body ? doc.body.innerHTML : decryptedText);
+    bodyContent = formatDecryptedContentAsHtml(decryptedText, true);
     wrap = wrapHtml;
 
     if (wrap(bodyContent).length > maxLength) {
       // Doesn't fit even with formatting — fall back to plain text so any
       // further truncation below can't leave unbalanced/broken HTML tags.
-      const plainText = doc.body ? doc.body.textContent : decryptedText;
-      bodyContent = escapePlainText(plainText);
+      bodyContent = formatDecryptedContentAsPlainTextHtml(decryptedText, true);
       wrap = wrapText;
     }
   } else {
-    bodyContent = escapePlainText(decryptedText);
+    bodyContent = formatDecryptedContentAsHtml(decryptedText, false);
     wrap = wrapText;
   }
 
   if (wrap(bodyContent).length > maxLength) {
-    const notice = '<br><em>[Original message truncated — too large to quote in full]</em>';
-    const overhead = wrap('').length + notice.length;
-    bodyContent = bodyContent.slice(0, Math.max(0, maxLength - overhead)) + notice;
+    const overhead = wrap('').length + REPLY_TRUNCATION_NOTICE.length;
+    bodyContent = bodyContent.slice(0, Math.max(0, maxLength - overhead)) + REPLY_TRUNCATION_NOTICE;
   }
 
   const result = wrap(bodyContent);
@@ -1235,6 +1228,23 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
   // maxLength — this matters more than well-formed HTML in that case.
   return result.length > maxLength ? result.slice(0, maxLength) : result;
 }
+
+// Channel name for the large-message native-reply handoff (see
+// openNativeReplyWithHandoff). Fixed/well-known, unlike the pop-out dialog's
+// per-token channel name: displayReplyForm/displayReplyAllForm give no way
+// to control the new compose window's URL, so there's nowhere to embed a
+// token for it to read on load. The token still travels inside each
+// message's payload, to correlate a broadcast with its ack.
+const REPLY_HANDOFF_CHANNEL_NAME = 'pgp_reply_handoff';
+
+// How long to keep re-broadcasting the handoff before giving up and falling
+// back to the original displayNewMessageForm + buildQuotedReplyHtml path.
+const REPLY_HANDOFF_TIMEOUT_MS = 10000;
+// How often to re-broadcast while waiting for MessageCompose.js's ack — a
+// compose window that takes a couple of seconds to load still catches one of
+// these, since BroadcastChannel drops messages posted before a listener
+// exists with no queueing for late subscribers.
+const REPLY_HANDOFF_BROADCAST_INTERVAL_MS = 400;
 
 /**
  * Entry point for both reply buttons.
@@ -1292,13 +1302,54 @@ function handleReplyEncrypted(replyAll) {
     htmlBody = buildQuotedReplyHtml(_decryptedText, _decryptedIsHtml, senderName, sentDate);
   }
 
+  // buildQuotedReplyHtml() already had to truncate — the message is too big
+  // for displayNewMessageForm/displayReplyForm's shared 32 KB htmlBody cap.
+  // Route it through the native-reply + handoff path instead, which splices
+  // the full decrypted content in from inside the new compose window via
+  // Body.setAsync (1 MB limit) — see openNativeReplyWithHandoff. Everything
+  // else (the common case: messages that fit) keeps today's exact behavior.
+  const wouldTruncate = htmlBody.includes(REPLY_TRUNCATION_NOTICE);
+  if (wouldTruncate && typeof BroadcastChannel === 'function') {
+    openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients, subject, htmlBody);
+    return;
+  }
+
+  openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, false);
+}
+
+/**
+ * Opens a new-message compose form pre-filled with recipients/subject/quoted
+ * body — the original Reply/Reply All mechanism. Used directly for
+ * normal-sized messages, and as the safety-net fallback when the native-reply
+ * handoff (openNativeReplyWithHandoff) can't be confirmed to have worked for
+ * a large one.
+ *
+ * @param {boolean} isHandoffFallback - true when this is the large-message
+ *   fallback path: shown with a distinct warning (and a note that a second,
+ *   still-blank/still-armored reply window is also open) instead of the
+ *   normal success message.
+ */
+function openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, isHandoffFallback) {
   const formData = { toRecipients, ccRecipients, subject, ...(htmlBody ? { htmlBody } : {}) };
+
+  const onSuccess = () => {
+    if (isHandoffFallback) {
+      showStatus(
+        "Reply setup didn't finish in time, so a backup reply window was opened with the message content — " +
+        "formatting may have been shortened to fit Outlook's size limit. You can close the other blank reply " +
+        'window that also opened.',
+        'warning'
+      );
+    } else {
+      showStatusReplyOpened();
+    }
+  };
 
   const onResult = r => {
     if (r && r.status === Office.AsyncResultStatus.Failed) {
       showStatus(`Could not open reply: ${r.error.message}`, 'error');
     } else {
-      showStatusReplyOpened();
+      onSuccess();
     }
   };
 
@@ -1308,11 +1359,84 @@ function handleReplyEncrypted(replyAll) {
       mailbox.displayNewMessageFormAsync(formData, onResult);
     } else {
       mailbox.displayNewMessageForm(formData);
-      showStatusReplyOpened();
+      onSuccess();
     }
   } catch (e) {
     showStatus(`Could not open reply: ${e.message}`, 'error');
   }
+}
+
+/**
+ * Large-message Reply/Reply All path.
+ *
+ * Opens Outlook's NATIVE reply (proper In-Reply-To/References threading,
+ * recipients, and "Re:" subject — all handled by Outlook itself; self is
+ * excluded from Reply All automatically) with no custom body, so it quotes
+ * the original message as Outlook has it: still PGP-armored, since Outlook
+ * has no notion of decryption. The decrypted plaintext is then handed to
+ * MessageCompose.js over a BroadcastChannel so it can splice it in from
+ * inside the new compose window's own script context, via Body.setAsync
+ * (1 MB limit) — the only body-write path not bound by the 32 KB htmlBody
+ * cap this whole path exists to avoid. See MessageCompose.js for the
+ * receiving side (armor stripping + splice).
+ *
+ * BroadcastChannel has an inherent timing race: a message posted before the
+ * new compose window's listener is ready is silently dropped, with no
+ * queueing for late subscribers. This re-broadcasts on an interval until an
+ * ack arrives; if none arrives within REPLY_HANDOFF_TIMEOUT_MS, it falls back
+ * to openReplyComposeForm() (today's original path, truncation and all) —
+ * opening a SECOND window, since Office.js gives no way to retract the
+ * native reply already opened, or get a live handle to it.
+ */
+function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients, subject, htmlBody) {
+  const item = Office.context.mailbox.item;
+  const fallBack = () => openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, true);
+
+  try {
+    if (replyAll) item.displayReplyAllForm();
+    else item.displayReplyForm();
+  } catch (e) {
+    console.error('Native reply: displayReplyForm/displayReplyAllForm failed', e);
+    fallBack();
+    return;
+  }
+
+  let channel;
+  try {
+    channel = new BroadcastChannel(REPLY_HANDOFF_CHANNEL_NAME);
+  } catch (e) {
+    console.error('Native reply: BroadcastChannel construction failed', e);
+    fallBack();
+    return;
+  }
+
+  const token = generateChannelToken();
+  let settled = false;
+  let broadcastTimer;
+  let giveUpTimer;
+
+  const finish = (useFallback) => {
+    if (settled) return;
+    settled = true;
+    clearInterval(broadcastTimer);
+    clearTimeout(giveUpTimer);
+    channel.close();
+    if (useFallback) fallBack();
+    else showStatusReplyOpened();
+  };
+
+  channel.onmessage = (event) => {
+    if (event.data?.type === 'pgp-reply-handoff-ack' && event.data.token === token) {
+      finish(false);
+    }
+  };
+
+  const broadcast = () => {
+    channel.postMessage({ type: 'pgp-reply-handoff', token, text: _decryptedText, isHtml: _decryptedIsHtml });
+  };
+  broadcast();
+  broadcastTimer = setInterval(broadcast, REPLY_HANDOFF_BROADCAST_INTERVAL_MS);
+  giveUpTimer = setTimeout(() => finish(true), REPLY_HANDOFF_TIMEOUT_MS);
 }
 
 // ── Mobile inline compose ─────────────────────────────────────────────────────
