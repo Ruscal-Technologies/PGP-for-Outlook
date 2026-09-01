@@ -99,6 +99,20 @@ function _buildLegacyKeyReadConfig() {
   return { rejectHashAlgorithms: rejectHashes, rejectPublicKeyAlgorithms: rejectPK };
 }
 
+/**
+ * RFC 4880 §9.3 compression algorithm 1 (DEFLATE/zip) — shrinks the
+ * ASCII-armored payload for both message bodies and attachments.
+ *
+ * OpenPGP.js only actually compresses when EVERY recipient key's
+ * self-signature advertises support for this algorithm (its internal
+ * getPreferredAlgo() negotiation); it silently falls back to uncompressed
+ * otherwise, so this is safe to enable unconditionally — it can never break
+ * encryption for a recipient with an older/stripped key. Decompression is
+ * automatic on the decrypt side (the CompressedDataPacket carries its own
+ * algorithm ID) and needs no config or code changes there — see CLAUDE.md.
+ */
+const COMPRESSION_CONFIG = { preferredCompressionAlgorithm: openpgp.enums.compression.zip };
+
 // ── Key generation ────────────────────────────────────────────────────────────
 
 /**
@@ -403,7 +417,7 @@ export async function addModernSubkeys(armoredPrivateKey, passphrase) {
  */
 export async function encryptMessage(text, recipientPublicKeys, signingKey = null) {
   const message = await openpgp.createMessage({ text });
-  const options = { message, encryptionKeys: recipientPublicKeys };
+  const options = { message, encryptionKeys: recipientPublicKeys, config: COMPRESSION_CONFIG };
   if (signingKey) options.signingKeys = signingKey;
 
   try {
@@ -421,7 +435,7 @@ export async function encryptMessage(text, recipientPublicKeys, signingKey = nul
     // original strict-config parse.  Re-reading via readKey() with the legacy config
     // produces a clean Key object whose lazy validation will use the permissive config.
     if (_isWeakKeyError(err) || _isLegacySelfSigError(err)) {
-      const config = _buildLegacyKeyReadConfig();
+      const config = { ..._buildLegacyKeyReadConfig(), ...COMPRESSION_CONFIG };
       const reparsedKeys = await Promise.all(
         recipientPublicKeys.map(k => openpgp.readKey({ armoredKey: k.armor(), config }))
       );
@@ -530,6 +544,7 @@ export async function encryptAttachment(data, filename, recipientPublicKeys, sig
     message: await openpgp.createMessage({ binary: data, filename }),
     encryptionKeys: recipientPublicKeys,
     format: 'armored',
+    config: COMPRESSION_CONFIG,
   };
   if (signingKey) options.signingKeys = signingKey;
 
@@ -537,7 +552,7 @@ export async function encryptAttachment(data, filename, recipientPublicKeys, sig
     return await openpgp.encrypt(options);
   } catch (err) {
     if (_isWeakKeyError(err) || _isLegacySelfSigError(err)) {
-      const config = _buildLegacyKeyReadConfig();
+      const config = { ..._buildLegacyKeyReadConfig(), ...COMPRESSION_CONFIG };
       const reparsedKeys = await Promise.all(
         recipientPublicKeys.map(k => openpgp.readKey({ armoredKey: k.armor(), config }))
       );

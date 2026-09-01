@@ -69,6 +69,8 @@ session-cache.js   ← standalone (in-memory only, no imports from pgp/)
 
 `pgp-core.js` is the only file that touches the OpenPGP.js library. All crypto goes through it.
 
+Message and attachment encryption also enable DEFLATE compression (`config.preferredCompressionAlgorithm`) to shrink the armored payload. This is a soft opt-in: OpenPGP.js only compresses when every recipient key's self-signature advertises support for it, silently falling back to uncompressed otherwise — so it's safe for legacy/stripped keys. Decompression is fully automatic on the decrypt side (the packet carries its own algorithm ID); no decrypt-side code or config is needed.
+
 ## Storage model
 
 Everything persists in **Office roaming settings** (32 KB total cap, syncs across devices):

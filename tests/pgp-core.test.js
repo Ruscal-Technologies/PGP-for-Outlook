@@ -19,6 +19,10 @@ import {
   uint8ArrayToBase64,
 } from '../web/js/pgp/pgp-core.js';
 import { LEGACY_PUBLIC_KEY, LEGACY_PRIVATE_KEY, LEGACY_PASSPHRASE } from './fixtures/legacy-dsa-elgamal-key.js';
+// Only used directly in the compression tests below, to build an
+// uncompressed baseline for comparison — pgp-core.js remains the sole
+// production-code importer of OpenPGP.js.
+import * as openpgp from '../web/js/openpgp.min.mjs';
 
 // Flips one base64 character in the armor body to simulate bit-level
 // corruption (e.g. a mangled transfer) without touching the header/footer/
@@ -139,6 +143,47 @@ describe('encryptAttachment + decryptAttachment round trip', () => {
     const armoredEmail = await encryptAttachment(new Uint8Array([1]), 'email', [recipientKey]);
     const emailResult = await decryptAttachment(armoredEmail, unlockedAlice);
     expect(emailResult.filename).toBe('');
+  });
+});
+
+describe('compression', () => {
+  it('shrinks the armored payload for a compressible body, relative to an uncompressed baseline', async () => {
+    const recipientKey = await readPublicKey(alice.publicKey);
+    const compressibleText = 'The quick brown fox jumps over the lazy dog. '.repeat(200);
+
+    const compressed = await encryptMessage(compressibleText, [recipientKey]);
+
+    const message = await openpgp.createMessage({ text: compressibleText });
+    const uncompressed = await openpgp.encrypt({
+      message,
+      encryptionKeys: [recipientKey],
+      config: { preferredCompressionAlgorithm: openpgp.enums.compression.uncompressed },
+    });
+
+    expect(compressed.length).toBeLessThan(uncompressed.length * 0.9);
+  });
+
+  it('round-trips a large, highly-compressible message body correctly', async () => {
+    const recipientKey = await readPublicKey(alice.publicKey);
+    const unlockedAlice = await unlockPrivateKey(alice.privateKey, 'correct horse battery staple');
+    const text = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(500);
+
+    const armored = await encryptMessage(text, [recipientKey]);
+    const { data } = await decryptMessage(armored, unlockedAlice);
+
+    expect(data).toBe(text);
+  });
+
+  it('round-trips a large, highly-compressible attachment correctly', async () => {
+    const recipientKey = await readPublicKey(alice.publicKey);
+    const unlockedAlice = await unlockPrivateKey(alice.privateKey, 'correct horse battery staple');
+    const originalBytes = new Uint8Array(5000).fill(42); // highly compressible, repeated byte
+
+    const armored = await encryptAttachment(originalBytes, 'padding.bin', [recipientKey]);
+    const { data, filename } = await decryptAttachment(armored, unlockedAlice);
+
+    expect(filename).toBe('padding.bin');
+    expect(Array.from(data)).toEqual(Array.from(originalBytes));
   });
 });
 
