@@ -374,6 +374,26 @@
                     </Action>
                   </Control>
 
+                  <!-- #22: target of the InsightMessage notification's ShowTaskPane
+                       action posted by Functions/ReplyHandoffRuntime.classic.js.
+                       Also manually clickable as a fallback if that notification
+                       doesn't appear for some reason. See web/ReplyHandoffPane.js. -->
+                  <Control xsi:type="Button" id="msgComposeReplyHandoffButton">
+                    <Label resid="replyHandoffButtonLabel" />
+                    <Supertip>
+                      <Title resid="replyHandoffSuperTipTitle" />
+                      <Description resid="replyHandoffSuperTipDescription" />
+                    </Supertip>
+                    <Icon>
+                      <bt:Image size="16" resid="iconDecrypt16" />
+                      <bt:Image size="32" resid="iconDecrypt32" />
+                      <bt:Image size="80" resid="iconDecrypt80" />
+                    </Icon>
+                    <Action xsi:type="ShowTaskpane">
+                      <SourceLocation resid="replyHandoffPaneUrl" />
+                    </Action>
+                  </Control>
+
                 </Group>
               </OfficeTab>
             </ExtensionPoint>
@@ -461,6 +481,7 @@
           <bt:Url id="keyManagementTaskPaneUrl"  DefaultValue="https://pgp-outlook.ruscaltech.com/KeyManagement.html" />
           <bt:Url id="replyHandoffRuntimeUrl"    DefaultValue="https://pgp-outlook.ruscaltech.com/ReplyHandoffRuntime.html" />
           <bt:Url id="replyHandoffRuntimeJsUrl"  DefaultValue="https://pgp-outlook.ruscaltech.com/Functions/ReplyHandoffRuntime.classic.js" />
+          <bt:Url id="replyHandoffPaneUrl"       DefaultValue="https://pgp-outlook.ruscaltech.com/ReplyHandoffPane.html" />
         </bt:Urls>
 
         <bt:ShortStrings>
@@ -471,6 +492,8 @@
           <bt:String id="composeEncryptSuperTipTitle"  DefaultValue="Encrypt PGP Message" />
           <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage Keys" />
           <bt:String id="manageKeysSuperTipTitle"      DefaultValue="PGP Key Management" />
+          <bt:String id="replyHandoffButtonLabel"      DefaultValue="Insert Decrypted Reply" />
+          <bt:String id="replyHandoffSuperTipTitle"    DefaultValue="Insert Decrypted Reply" />
         </bt:ShortStrings>
 
         <bt:LongStrings>
@@ -480,6 +503,8 @@
             DefaultValue="Open the PGP encryption pane to encrypt this message before sending." />
           <bt:String id="manageKeysSuperTipDescription"
             DefaultValue="Generate or import PGP keys, manage your keyring, and configure organization settings." />
+          <bt:String id="replyHandoffSuperTipDescription"
+            DefaultValue="Automatically inserts the decrypted message into this reply. Normally triggered automatically by a notification; click this if that notification doesn't appear." />
         </bt:LongStrings>
       </Resources>
 

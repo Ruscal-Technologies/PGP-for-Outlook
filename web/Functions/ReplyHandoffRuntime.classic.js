@@ -7,18 +7,19 @@
 //     Build 17425.20000)
 //   - no ternary operator (prevents the add-in from loading on those builds)
 //   - no import/ES modules (must be a single flat file; nothing bundled)
-// See web/ReplyHandoffRuntime.js's own comments for what this mirrors on
-// other platforms, and CLAUDE.md / the #22 plan for the full rationale.
+// Confirmed live (2026-09-02): this runtime has neither `document` nor
+// `BroadcastChannel` -- so unlike web/ReplyHandoffRuntime.js (full browser
+// runtime), this handler cannot receive or splice the decrypted payload
+// itself. Its only job is to prompt the user to do it themselves, in one
+// click: post an InsightMessage notification whose action opens
+// web/ReplyHandoffPane.js -- a dedicated minimal pane that has a real
+// browser runtime (and thus a real BroadcastChannel), completes the splice,
+// and closes itself. See that file and CLAUDE.md's #22 section for the full
+// picture, including why sessionData/showAsTaskpane/temp files were all
+// considered and ruled out as alternatives.
 //
 // Office.onReady()/Office.initialize do NOT run in this context -- there is
 // no shared bootstrap moment, every invocation is a cold start.
-//
-// STEP 1 (current): no-op. Only confirms the event fires at all here, and
-// (just as importantly) whether `document`/BroadcastChannel even exist in
-// this runtime -- neither is guaranteed, unlike the browser-runtime file.
-// Check via Windows Event Viewer (Windows Logs > Application, Event ID 63
-// on failure) and the downloaded-handler-file location under
-// %LOCALAPPDATA%\Microsoft\Office\16.0\Wef\...\Javascript\.
 
 function onNewMessageComposeHandler(event) {
   function finish() {
@@ -34,27 +35,43 @@ function onNewMessageComposeHandler(event) {
       if (result.status === Office.AsyncResultStatus.Succeeded) {
         composeType = result.value.composeType;
       }
-      var hasDocument = typeof document !== 'undefined';
-      var hasBroadcastChannel = typeof BroadcastChannel !== 'undefined';
-      console.log('ReplyHandoffRuntime.classic: OnNewMessageCompose fired', {
-        composeType: composeType,
-        conversationId: Office.context.mailbox.item.conversationId,
-        hasDocument: hasDocument,
-        hasBroadcastChannel: hasBroadcastChannel,
-      });
-      // A visible info-bar notification, not just a console.log -- classic
-      // Outlook Windows may not have accessible DevTools for this hidden
-      // JS-only runtime at all, so this is the one signal guaranteed
-      // visible here while confirming step 1 of #22's plan (does the
-      // event fire, and does document/BroadcastChannel exist here).
-      Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_step1', {
-        type: Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
+
+      // Office.MailboxEnums.ComposeType has exactly three values -- Reply,
+      // NewMail, Forward -- Reply All is NOT a distinct value; it also
+      // reports 'reply'. A new message or forward has no prior encrypted
+      // content to hand off, so there's nothing to prompt for.
+      if (composeType !== Office.MailboxEnums.ComposeType.Reply) {
+        finish();
+        return;
+      }
+
+      // Heuristic only, not the full scoping-ID fallback chain
+      // web/js/pgp/reply-handoff-runtime-core.js's armReplyHandoffListener
+      // itself does (conversationId, then item.inReplyTo on Mailbox 1.14+):
+      // if there's no conversationId here, showing the notification would
+      // just lead to a pane that finds nothing to listen on. The pane does
+      // the real, complete check; this is only deciding whether it's worth
+      // prompting at all.
+      var conversationId = Office.context.mailbox.item.conversationId;
+      if (!conversationId) {
+        finish();
+        return;
+      }
+
+      Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_insight', {
+        type: Office.MailboxEnums.ItemNotificationMessageType.InsightMessage,
+        message: 'A large decrypted reply is ready to be inserted into this message.',
         icon: 'icon16',
-        message: 'ReplyHandoffRuntime (classic) fired: composeType=' + composeType +
-          ' document=' + hasDocument + ' BroadcastChannel=' + hasBroadcastChannel,
-        persistent: false,
+        actions: [
+          {
+            actionText: 'Insert decrypted reply',
+            actionType: Office.MailboxEnums.ActionType.ShowTaskPane,
+            commandId: 'msgComposeReplyHandoffButton',
+          },
+        ],
+      }, function () {
+        finish();
       });
-      finish();
     });
   } catch (e) {
     console.error('ReplyHandoffRuntime.classic: handler failed', e);
