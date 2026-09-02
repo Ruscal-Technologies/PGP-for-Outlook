@@ -1512,9 +1512,10 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
   _nativeReplyHandoffInFlight = true;
   setReplyButtonsDisabled(true);
 
+  const channelName = getReplyHandoffChannelName(scopingId);
   let channel;
   try {
-    channel = new BroadcastChannel(getReplyHandoffChannelName(scopingId));
+    channel = new BroadcastChannel(channelName);
   } catch (e) {
     console.error('Native reply: BroadcastChannel construction failed', e);
     _nativeReplyHandoffInFlight = false;
@@ -1522,6 +1523,7 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
     fallBack(HandoffFallbackReason.CHANNEL_FAILED);
     return;
   }
+  console.log('Native reply: broadcasting on', channelName);
 
   const token = generateChannelToken();
   let settled = false;
