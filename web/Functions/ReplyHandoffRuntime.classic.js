@@ -20,6 +20,18 @@
 //
 // Office.onReady()/Office.initialize do NOT run in this context -- there is
 // no shared bootstrap moment, every invocation is a cold start.
+//
+// actionType is passed as the plain string 'showTaskPane' rather than
+// Office.MailboxEnums.ActionType.ShowTaskPane -- the interface explicitly
+// accepts `string | MailboxEnums.ActionType`, and this restricted runtime's
+// Office.MailboxEnums object may not populate every enum the full browser
+// runtime does (confirmed working here: ItemNotificationMessageType; NOT
+// confirmed: ActionType) -- an undefined access there would throw inside
+// this async callback, which the outer try/catch can't catch (it's already
+// returned by the time the callback runs), silently killing the handler
+// with no notification and no error surfaced anywhere. Every step below is
+// wrapped so a failure is at minimum visible via a fallback notification,
+// using only the InformationalMessage type already confirmed to work here.
 
 function onNewMessageComposeHandler(event) {
   function finish() {
@@ -29,49 +41,74 @@ function onNewMessageComposeHandler(event) {
     event.completed();
   }
 
+  function showFallbackInfo(message) {
+    try {
+      Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_insight', {
+        type: Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
+        icon: 'icon16',
+        message: message,
+        persistent: false,
+      });
+    } catch (fallbackErr) {
+      console.error('ReplyHandoffRuntime.classic: fallback notification also failed', fallbackErr);
+    }
+  }
+
   try {
     Office.context.mailbox.item.getComposeTypeAsync(function (result) {
-      var composeType = null;
-      if (result.status === Office.AsyncResultStatus.Succeeded) {
-        composeType = result.value.composeType;
-      }
+      try {
+        var composeType = null;
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+          composeType = result.value.composeType;
+        }
 
-      // Office.MailboxEnums.ComposeType has exactly three values -- Reply,
-      // NewMail, Forward -- Reply All is NOT a distinct value; it also
-      // reports 'reply'. A new message or forward has no prior encrypted
-      // content to hand off, so there's nothing to prompt for.
-      if (composeType !== Office.MailboxEnums.ComposeType.Reply) {
-        finish();
-        return;
-      }
+        // Office.MailboxEnums.ComposeType has exactly three values -- Reply,
+        // NewMail, Forward -- Reply All is NOT a distinct value; it also
+        // reports 'reply'. A new message or forward has no prior encrypted
+        // content to hand off, so there's nothing to prompt for.
+        if (composeType !== Office.MailboxEnums.ComposeType.Reply) {
+          finish();
+          return;
+        }
 
-      // Heuristic only, not the full scoping-ID fallback chain
-      // web/js/pgp/reply-handoff-runtime-core.js's armReplyHandoffListener
-      // itself does (conversationId, then item.inReplyTo on Mailbox 1.14+):
-      // if there's no conversationId here, showing the notification would
-      // just lead to a pane that finds nothing to listen on. The pane does
-      // the real, complete check; this is only deciding whether it's worth
-      // prompting at all.
-      var conversationId = Office.context.mailbox.item.conversationId;
-      if (!conversationId) {
-        finish();
-        return;
-      }
+        // Heuristic only, not the full scoping-ID fallback chain
+        // web/js/pgp/reply-handoff-runtime-core.js's armReplyHandoffListener
+        // itself does (conversationId, then item.inReplyTo on Mailbox
+        // 1.14+): if there's no conversationId here, showing the
+        // notification would just lead to a pane that finds nothing to
+        // listen on. The pane does the real, complete check; this is only
+        // deciding whether it's worth prompting at all.
+        var conversationId = Office.context.mailbox.item.conversationId;
+        if (!conversationId) {
+          finish();
+          return;
+        }
 
-      Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_insight', {
-        type: Office.MailboxEnums.ItemNotificationMessageType.InsightMessage,
-        message: 'A large decrypted reply is ready to be inserted into this message.',
-        icon: 'icon16',
-        actions: [
-          {
-            actionText: 'Insert decrypted reply',
-            actionType: Office.MailboxEnums.ActionType.ShowTaskPane,
-            commandId: 'msgComposeReplyHandoffButton',
-          },
-        ],
-      }, function () {
+        Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_insight', {
+          type: Office.MailboxEnums.ItemNotificationMessageType.InsightMessage,
+          message: 'A large decrypted reply is ready to be inserted into this message.',
+          icon: 'icon16',
+          actions: [
+            {
+              actionText: 'Insert decrypted reply',
+              actionType: 'showTaskPane',
+              commandId: 'msgComposeReplyHandoffButton',
+              contextData: {},
+            },
+          ],
+        }, function (notifyResult) {
+          if (notifyResult.status === Office.AsyncResultStatus.Failed) {
+            var errMessage = notifyResult.error && notifyResult.error.message;
+            console.error('ReplyHandoffRuntime.classic: InsightMessage notification failed', notifyResult.error);
+            showFallbackInfo('Reply handoff ready, but the notification failed: ' + errMessage);
+          }
+          finish();
+        });
+      } catch (innerErr) {
+        console.error('ReplyHandoffRuntime.classic: handler failed inside getComposeTypeAsync callback', innerErr);
+        showFallbackInfo('ReplyHandoffRuntime error: ' + innerErr.message);
         finish();
-      });
+      }
     });
   } catch (e) {
     console.error('ReplyHandoffRuntime.classic: handler failed', e);
