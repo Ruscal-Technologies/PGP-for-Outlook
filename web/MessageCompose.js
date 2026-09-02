@@ -837,7 +837,10 @@ export async function setupReplyHandoffListener(has110 = _has110, has114 = _has1
       console.error('Reply handoff: getComposeTypeAsync failed', e);
       return null; // unknown -- fall through and listen anyway, see below
     });
-    if (composeType !== null && composeType !== Office.MailboxEnums.ComposeType.Reply) return;
+    if (composeType !== null && composeType !== Office.MailboxEnums.ComposeType.Reply) {
+      console.log('Reply handoff: not listening -- composeType is', composeType);
+      return;
+    }
   }
   // _has110 false: can't confirm compose type, so listen anyway (broader
   // exposure on older hosts only, still bounded by the timeout below).
@@ -857,6 +860,7 @@ export async function setupReplyHandoffListener(has110 = _has110, has114 = _has1
     // decrypted plaintext. Treat this the same as "handoff unavailable" and
     // don't listen at all; MessageRead.js makes the matching decision on its
     // side (see openNativeReplyWithHandoff).
+    console.log('Reply handoff: not listening -- no conversationId or inReplyTo available');
     return;
   }
 
@@ -868,6 +872,7 @@ export async function setupReplyHandoffListener(has110 = _has110, has114 = _has1
     console.error('Reply handoff: BroadcastChannel construction failed', e);
     return;
   }
+  console.log('Reply handoff: listening on', channelName);
 
   const idleTimer = setTimeout(() => {
     if (!_replyHandoffConsumed) channel.close();
@@ -886,6 +891,7 @@ export async function setupReplyHandoffListener(has110 = _has110, has114 = _has1
     handoffInFlight = true;
 
     const { success, message } = await applyReplyHandoff(data.text, data.isHtml);
+    console.log('Reply handoff: applyReplyHandoff result', { success, message });
     // Only ack on confirmed success -- an ack that arrives despite a failed
     // splice would make MessageRead.js treat this as done and never trigger
     // its own fallback, leaving the user with a still-armored body and no
