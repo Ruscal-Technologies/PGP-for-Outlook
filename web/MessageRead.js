@@ -1194,8 +1194,11 @@ export const REPLY_TRUNCATION_NOTICE = '<br><em>[Original message truncated — 
  * @param {string} sentDate
  * @param {number} [maxLength]
  * @returns {{html: string, truncated: boolean}} `html` is wrapped, size-capped
- *   HTML ready to use as formData.htmlBody; `truncated` is true only when
- *   this call actually had to shorten/degrade the content to fit.
+ *   HTML ready to use as formData.htmlBody; `truncated` is true whenever this
+ *   call had to degrade the content to fit — either falling back from
+ *   formatted HTML to plain text (losing all formatting, even if the
+ *   resulting text itself ends up fitting), or actually cutting text and
+ *   appending the truncation notice.
  */
 export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName, sentDate, maxLength = MAX_REPLY_HTML_BODY_LENGTH) {
   const quoteHeader = `<br>--- Original message${senderName ? ` from ${escHtml(senderName)}` : ''}${sentDate ? ` on ${escHtml(sentDate)}` : ''} ---<br>`;
@@ -1207,6 +1210,7 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
 
   let bodyContent;
   let wrap;
+  let truncated = false;
   if (decryptedIsHtml) {
     bodyContent = formatDecryptedContentAsHtml(decryptedText, true);
     wrap = wrapHtml;
@@ -1214,6 +1218,10 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
     if (wrap(bodyContent).length > maxLength) {
       // Doesn't fit even with formatting — fall back to plain text so any
       // further truncation below can't leave unbalanced/broken HTML tags.
+      // This is itself content degradation (all HTML formatting lost), not
+      // just a possible follow-on truncation below, so it counts as
+      // `truncated` even if the resulting plain text ends up fitting fine.
+      truncated = true;
       bodyContent = formatDecryptedContentAsPlainTextHtml(decryptedText, true);
       wrap = wrapText;
     }
@@ -1222,7 +1230,6 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
     wrap = wrapText;
   }
 
-  let truncated = false;
   if (wrap(bodyContent).length > maxLength) {
     truncated = true;
     const overhead = wrap('').length + REPLY_TRUNCATION_NOTICE.length;
@@ -1389,9 +1396,22 @@ function openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, isH
  * opening a SECOND window, since Office.js gives no way to retract the
  * native reply already opened, or get a live handle to it.
  */
-function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients, subject, htmlBody) {
+export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients, subject, htmlBody) {
   const item = Office.context.mailbox.item;
   const fallBack = () => openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, true);
+
+  if (!item.conversationId) {
+    // Without a conversationId there's no way to scope the handoff channel
+    // per-conversation -- falling back to the shared base channel name would
+    // let any same-origin page listen for this (and every other) large
+    // reply's decrypted plaintext. Treat this as "handoff unavailable" and
+    // skip straight to the existing path, rather than opening a native reply
+    // we can't safely hand plaintext to. MessageCompose.js makes the
+    // matching decision on its side (see setupReplyHandoffListener).
+    console.error('Native reply: missing conversationId, skipping handoff');
+    fallBack();
+    return;
+  }
 
   // Captured now, not read live from the broadcast closure below: the user
   // could decrypt a *different* message in the reading pane while this

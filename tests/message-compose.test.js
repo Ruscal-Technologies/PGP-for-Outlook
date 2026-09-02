@@ -169,11 +169,11 @@ describe('reply handoff (BroadcastChannel)', () => {
     expect(savedBody).not.toContain('BEGIN PGP MESSAGE');
   });
 
-  it('sets up the handoff listener for Reply All compose windows too', async () => {
+  it('sets up the handoff listener for Reply All compose windows too (Office reports composeType "reply" for both)', async () => {
     const conversationId = makeConversationId();
     const { office, getSavedBody } = makeOfficeStub({
       bodyHtml: `<div>Reply-all header info</div><div>${ARMOR}</div>`,
-      composeType: 'replyAll',
+      composeType: 'reply', // Office.MailboxEnums.ComposeType has no distinct ReplyAll value
       conversationId,
     });
     global.Office = office;
@@ -349,6 +349,35 @@ describe('reply handoff (BroadcastChannel)', () => {
       };
     });
     sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-4', text: 'decrypted text', isHtml: false });
+
+    const result = await raceTimeout(acked, 300);
+    sender.close();
+
+    expect(result.settled).toBe(false);
+    expect(wasSetAsyncCalled()).toBe(false);
+  });
+
+  it('never sets up a listener when conversationId is missing, even for a genuine reply -- refuses the shared base channel', async () => {
+    const { office, wasSetAsyncCalled } = makeOfficeStub({
+      bodyHtml: `<div>${ARMOR}</div>`,
+      composeType: 'reply',
+      conversationId: undefined,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    // The base (unscoped) channel name -- the one thing this must NOT listen on.
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(undefined));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-5', text: 'decrypted text', isHtml: false });
 
     const result = await raceTimeout(acked, 300);
     sender.close();

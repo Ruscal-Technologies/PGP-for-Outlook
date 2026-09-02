@@ -819,20 +819,30 @@ export async function setupReplyHandoffListener(has110 = _has110) {
   if (typeof BroadcastChannel !== 'function') return;
 
   if (has110) {
+    // Office.MailboxEnums.ComposeType has exactly three values -- Reply,
+    // NewMail, Forward -- Reply All is NOT a distinct value; getComposeTypeAsync
+    // reports 'reply' for both.
     const composeType = await getComposeTypeAsync().catch((e) => {
       console.error('Reply handoff: getComposeTypeAsync failed', e);
       return null; // unknown -- fall through and listen anyway, see below
     });
-    if (
-      composeType !== null &&
-      composeType !== Office.MailboxEnums.ComposeType.Reply &&
-      composeType !== Office.MailboxEnums.ComposeType.ReplyAll
-    ) return;
+    if (composeType !== null && composeType !== Office.MailboxEnums.ComposeType.Reply) return;
   }
   // _has110 false: can't confirm compose type, so listen anyway (broader
   // exposure on older hosts only, still bounded by the timeout below).
 
-  const channelName = getReplyHandoffChannelName(Office.context.mailbox.item.conversationId);
+  const conversationId = Office.context.mailbox.item.conversationId;
+  if (!conversationId) {
+    // Without a conversationId there's no way to scope the channel per-
+    // conversation -- falling back to the shared base channel name would let
+    // any same-origin page listen for this (and every other) large reply's
+    // decrypted plaintext. Treat this the same as "handoff unavailable" and
+    // don't listen at all; MessageRead.js makes the matching decision on its
+    // side (see openNativeReplyWithHandoff).
+    return;
+  }
+
+  const channelName = getReplyHandoffChannelName(conversationId);
   let channel;
   try {
     channel = new BroadcastChannel(channelName);

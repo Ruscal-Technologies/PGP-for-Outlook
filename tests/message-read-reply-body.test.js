@@ -88,6 +88,21 @@ describe('buildQuotedReplyHtml', () => {
     expect(truncated).toBe(true);
   });
 
+  it('reports truncated:true when the HTML quote overflows but its plain-text fallback fits fine (formatting lost, no actual text cut)', () => {
+    // Regression: falling back from formatted HTML to plain text is itself a
+    // real degradation (all formatting lost) even when the resulting plain
+    // text is short enough that no further truncation/notice is needed --
+    // truncated must not stay false just because the *fallback* fit. Heavy
+    // markup around short text overflows as formatted HTML but the bare text
+    // content ("Hi") fits maxLength comfortably once tags are stripped.
+    const bigHtml = `<html><body><p style="${'x'.repeat(250)}">Hi</p></body></html>`;
+    const { html: result, truncated } = buildQuotedReplyHtml(bigHtml, true, '', '', 300);
+
+    expect(result).toContain('<blockquote');
+    expect(result).not.toContain('[Original message truncated');
+    expect(truncated).toBe(true);
+  });
+
   it('truncates and appends a notice when even the plain-text quote exceeds maxLength', () => {
     const bigText = 'a'.repeat(500);
     const { html: result, truncated } = buildQuotedReplyHtml(bigText, false, '', '', 300);
