@@ -823,7 +823,11 @@ export async function setupReplyHandoffListener(has110 = _has110) {
       console.error('Reply handoff: getComposeTypeAsync failed', e);
       return null; // unknown -- fall through and listen anyway, see below
     });
-    if (composeType !== null && composeType !== Office.MailboxEnums.ComposeType.Reply) return;
+    if (
+      composeType !== null &&
+      composeType !== Office.MailboxEnums.ComposeType.Reply &&
+      composeType !== Office.MailboxEnums.ComposeType.ReplyAll
+    ) return;
   }
   // _has110 false: can't confirm compose type, so listen anyway (broader
   // exposure on older hosts only, still bounded by the timeout below).
@@ -840,12 +844,12 @@ export async function setupReplyHandoffListener(has110 = _has110) {
   const idleTimer = setTimeout(() => {
     if (!_replyHandoffConsumed) channel.close();
   }, REPLY_HANDOFF_LISTEN_TIMEOUT_MS);
+  let handoffInFlight = false;
 
   channel.onmessage = async (event) => {
     const data = event.data;
-    if (!data || data.type !== 'pgp-reply-handoff' || _replyHandoffConsumed) return;
-    _replyHandoffConsumed = true;
-    clearTimeout(idleTimer);
+    if (!data || data.type !== 'pgp-reply-handoff' || _replyHandoffConsumed || handoffInFlight) return;
+    handoffInFlight = true;
 
     const success = await applyReplyHandoff(data.text, data.isHtml);
     // Only ack on confirmed success -- an ack that arrives despite a failed
@@ -853,8 +857,14 @@ export async function setupReplyHandoffListener(has110 = _has110) {
     // its own fallback, leaving the user with a still-armored body and no
     // backup window. Staying silent here lets that timeout-based fallback
     // fire instead.
-    if (success) channel.postMessage({ type: 'pgp-reply-handoff-ack', token: data.token });
-    channel.close();
+    if (success) {
+      _replyHandoffConsumed = true;
+      clearTimeout(idleTimer);
+      channel.postMessage({ type: 'pgp-reply-handoff-ack', token: data.token });
+      channel.close();
+      return;
+    }
+    handoffInFlight = false;
   };
 }
 
