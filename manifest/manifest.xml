@@ -11,7 +11,7 @@
   ================================================================ -->
 
   <Id>4086c384-c2b3-4932-9b97-2b4d14c4821a</Id>
-  <Version>1.0.3.1</Version>
+  <Version>1.0.4.0</Version>
   <ProviderName>Ruscal Technologies</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="PGP Encryption" />
@@ -260,9 +260,41 @@
 
       <Hosts>
         <Host xsi:type="MailHost">
+
+          <!-- Event-based activation: runs a background listener the instant
+               ANY new compose window opens (New Mail, Reply, Reply All, or
+               Forward alike), without needing the task pane opened first.
+               See #22: the reply-handoff BroadcastChannel listener in
+               MessageCompose.js only ever ran when the user manually opened
+               the pane; this closes that gap on hosts that support it
+               (Mailbox 1.10+). Hosts below 1.10 simply never fire the event
+               (no error), same graceful-degradation pattern as _has110/
+               _has114 elsewhere in this add-in.
+               The HTML runtime below is used by Outlook on the web, new
+               Outlook on Windows, and new Mac UI; its Override child is
+               used instead by CLASSIC Outlook on Windows, which runs a
+               stripped-down JS-only runtime with its own constraints (no
+               async/await, no ternaries, no ES modules) on builds prior to
+               ~April 2024. -->
+          <Runtimes>
+            <Runtime resid="replyHandoffRuntimeUrl">
+              <Override type="javascript" resid="replyHandoffRuntimeJsUrl"/>
+            </Runtime>
+          </Runtimes>
+
           <DesktopFormFactor>
 
             <FunctionFile resid="functionFile" />
+
+            <!-- See the Runtimes comment above. This is step 1 of #22's
+                 fix: a no-op handler only, to confirm the event actually
+                 fires on real clients before any splice logic is added. -->
+            <ExtensionPoint xsi:type="LaunchEvent">
+              <LaunchEvents>
+                <LaunchEvent Type="OnNewMessageCompose" FunctionName="onNewMessageComposeHandler"/>
+              </LaunchEvents>
+              <SourceLocation resid="replyHandoffRuntimeUrl"/>
+            </ExtensionPoint>
 
             <ExtensionPoint xsi:type="MessageReadCommandSurface">
               <OfficeTab id="TabDefault">
@@ -427,6 +459,8 @@
           <bt:Url id="messageReadTaskPaneUrl"    DefaultValue="https://pgp-outlook.ruscaltech.com/MessageRead.html" />
           <bt:Url id="messageComposeTaskPaneUrl" DefaultValue="https://pgp-outlook.ruscaltech.com/MessageCompose.html" />
           <bt:Url id="keyManagementTaskPaneUrl"  DefaultValue="https://pgp-outlook.ruscaltech.com/KeyManagement.html" />
+          <bt:Url id="replyHandoffRuntimeUrl"    DefaultValue="https://pgp-outlook.ruscaltech.com/ReplyHandoffRuntime.html" />
+          <bt:Url id="replyHandoffRuntimeJsUrl"  DefaultValue="https://pgp-outlook.ruscaltech.com/Functions/ReplyHandoffRuntime.classic.js" />
         </bt:Urls>
 
         <bt:ShortStrings>
