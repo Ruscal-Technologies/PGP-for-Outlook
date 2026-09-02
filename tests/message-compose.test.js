@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 let stripPgpArmorBlock;
+let pickSpliceMarker;
 
 beforeEach(async () => {
   // MessageCompose.js calls Office.onReady(...) at module load time; the
@@ -18,7 +19,7 @@ beforeEach(async () => {
   // here, since stripPgpArmorBlock and the module-level BroadcastChannel
   // handoff listener (tested separately below) don't depend on it.
   global.Office = { onReady: () => {} };
-  ({ stripPgpArmorBlock } = await import('../web/MessageCompose.js'));
+  ({ stripPgpArmorBlock, pickSpliceMarker } = await import('../web/MessageCompose.js'));
 });
 
 const ARMOR = '-----BEGIN PGP MESSAGE-----\nVersion: Test\n\nabc123==\n-----END PGP MESSAGE-----';
@@ -78,16 +79,29 @@ describe('stripPgpArmorBlock', () => {
     expect(result).toEqual({ found: false });
   });
 
-  it('still splits correctly when the input already contains the base splice marker text literally', () => {
+  it('picks a non-colliding marker when the base marker text already appears in the input', () => {
+    // Discover the REAL base marker via the exported picker (it contains
+    // non-printing characters, so hardcoding a plain-text guess here -- as
+    // an earlier version of this test did -- would silently never collide
+    // and never actually exercise the fallback-suffix loop).
+    const baseMarker = pickSpliceMarker('');
+    const picked = pickSpliceMarker(`some text with ${baseMarker} already in it`);
+
+    expect(picked).not.toBe(baseMarker);
+    expect(`some text with ${baseMarker} already in it`).not.toContain(picked);
+  });
+
+  it('still splits correctly when the input already contains the real base splice marker literally', () => {
     // The internal marker is only an implementation detail, but the input is
     // attacker-influenceable PGP message content -- a literal collision must
     // not corrupt the split (e.g. drop content, or leak the marker itself).
-    const html = `<div>before __PGP_ARMOR_SPLICE__ text ${ARMOR} after __PGP_ARMOR_SPLICE__ text</div>`;
+    const baseMarker = pickSpliceMarker('');
+    const html = `<div>before ${baseMarker} text ${ARMOR} after ${baseMarker} text</div>`;
     const { found, before, after } = stripPgpArmorBlock(html);
 
     expect(found).toBe(true);
-    expect(before).toContain('before __PGP_ARMOR_SPLICE__ text');
-    expect(after).toContain('after __PGP_ARMOR_SPLICE__ text');
+    expect(before).toContain(`before ${baseMarker} text`);
+    expect(after).toContain(`after ${baseMarker} text`);
     expect(before + after).not.toContain('BEGIN PGP MESSAGE');
   });
 });
@@ -327,6 +341,41 @@ describe('reply handoff (BroadcastChannel)', () => {
     expect(savedBody).toContain('Reply header info');
     expect(savedBody).toContain('decrypted after retry');
     expect(savedBody).not.toContain('BEGIN PGP MESSAGE');
+  });
+
+  it('shows the failure warning only once, not on every retry, when the splice keeps failing identically', async () => {
+    // Regression: MessageRead.js re-broadcasts every ~400ms for up to ~10s,
+    // and each retry independently re-runs applyReplyHandoff (handoffInFlight
+    // only blocks *overlapping* attempts, not sequential ones) -- a splice
+    // that fails the same way every time must not re-flash the same warning
+    // on every single retry.
+    const conversationId = makeConversationId();
+    const { office } = makeOfficeStub({
+      bodyHtml: '<div>no armor here, ever</div>', // every attempt fails identically
+      composeType: 'reply',
+      conversationId,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const statusEl = document.getElementById('status-bar');
+    const textSetter = vi.spyOn(statusEl, 'textContent', 'set');
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    // Simulate three of MessageRead.js's retry broadcasts (same token, as a
+    // real retry loop would send).
+    for (let i = 0; i < 3; i++) {
+      sender.postMessage({ type: 'pgp-reply-handoff', token: 'retry-token', text: 'x', isHtml: false });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    sender.close();
+
+    expect(textSetter).toHaveBeenCalledTimes(1);
+    expect(statusEl.textContent).toContain('Could not find the encrypted message');
   });
 
   it('never sets up a listener at all for a non-reply compose window (newMail/forward)', async () => {

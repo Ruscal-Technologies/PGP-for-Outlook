@@ -803,10 +803,11 @@ function setBodyAsync(armoredText) {
 //     user used Outlook's own Reply button on an encrypted-but-undecrypted
 //     message) stops listening after a short grace period rather than for
 //     the rest of the window's lifetime.
-// The channel name itself is also derived from the conversation ID
-// (getReplyHandoffChannelName) rather than fixed, so a listener needs to
-// already know which conversation to target — see that module's docblock
-// for why this isn't a secrecy boundary on its own.
+// The channel name itself is also derived from a scoping ID (conversation ID,
+// or item.inReplyTo as a fallback — see setupReplyHandoffListener below)
+// rather than fixed, so a listener needs to already know which conversation/
+// message to target — see reply-handoff-channel.js's docblock for why this
+// isn't a secrecy boundary on its own.
 
 // Matches (with margin) MessageRead.js's REPLY_HANDOFF_TIMEOUT_MS, so a
 // reply window that's genuinely waiting on a handoff isn't cut off before
@@ -872,13 +873,19 @@ export async function setupReplyHandoffListener(has110 = _has110, has114 = _has1
     if (!_replyHandoffConsumed) channel.close();
   }, REPLY_HANDOFF_LISTEN_TIMEOUT_MS);
   let handoffInFlight = false;
+  // Shown once, not on every retry: a splice that fails once (e.g. the
+  // armor block sits in a DOM shape stripPgpArmorBlock() doesn't recognize)
+  // fails identically on every re-broadcast, and MessageRead.js retries
+  // every ~400ms for up to ~10s -- re-showing the same warning that often
+  // would flicker the status bar instead of informing the user.
+  let hasShownFailureWarning = false;
 
   channel.onmessage = async (event) => {
     const data = event.data;
     if (!data || data.type !== 'pgp-reply-handoff' || _replyHandoffConsumed || handoffInFlight) return;
     handoffInFlight = true;
 
-    const success = await applyReplyHandoff(data.text, data.isHtml);
+    const { success, message } = await applyReplyHandoff(data.text, data.isHtml);
     // Only ack on confirmed success -- an ack that arrives despite a failed
     // splice would make MessageRead.js treat this as done and never trigger
     // its own fallback, leaving the user with a still-armored body and no
@@ -889,7 +896,12 @@ export async function setupReplyHandoffListener(has110 = _has110, has114 = _has1
       clearTimeout(idleTimer);
       channel.postMessage({ type: 'pgp-reply-handoff-ack', token: data.token });
       channel.close();
+      showStatus(message, 'success');
       return;
+    }
+    if (!hasShownFailureWarning) {
+      hasShownFailureWarning = true;
+      showStatus(message, 'warning');
     }
     handoffInFlight = false;
   };
@@ -909,28 +921,29 @@ function getComposeTypeAsync() {
  * block Outlook quoted from the original encrypted message, and splices the
  * decrypted plaintext in at that location.
  *
- * Leaves the body untouched (with a warning) if the armor block can't be
- * found, or if anything else fails — never guesses at a partial edit.
+ * Does not itself show any status — the caller decides when to surface
+ * `message` (see setupReplyHandoffListener): a failed attempt here can be
+ * retried on a later re-broadcast, and showing a fresh warning on every one
+ * of those (up to ~25 times over the retry window) would flicker the status
+ * bar rather than inform the user.
  *
  * @param {string} text - Decrypted payload from MessageRead.js
  * @param {boolean} isHtml - True when the payload is HTML
- * @returns {Promise<boolean>} true only if the splice actually succeeded
+ * @returns {Promise<{success: boolean, message: string}>} `success` is true
+ *   only if the splice actually wrote; never guesses at a partial edit.
  */
 async function applyReplyHandoff(text, isHtml) {
   try {
     const bodyHtml = await getBodyAsync(Office.CoercionType.Html);
     const { found, before, after } = stripPgpArmorBlock(bodyHtml);
     if (!found) {
-      showStatus('Could not find the encrypted message in this reply to replace — please verify the body before sending.', 'warning');
-      return false;
+      return { success: false, message: 'Could not find the encrypted message in this reply to replace — please verify the body before sending.' };
     }
     const formattedContent = formatDecryptedContentAsHtml(text, isHtml);
     await setBodyHtmlAsync(before + formattedContent + after);
-    showStatus('Decrypted message inserted into this reply.', 'success');
-    return true;
+    return { success: true, message: 'Decrypted message inserted into this reply.' };
   } catch (e) {
-    showStatus(`Could not automatically insert the decrypted message into this reply: ${e.message} — please verify the body before sending.`, 'warning');
-    return false;
+    return { success: false, message: `Could not automatically insert the decrypted message into this reply: ${e.message} — please verify the body before sending.` };
   }
 }
 
@@ -943,8 +956,11 @@ const ARMOR_SPLICE_MARKER_BASE = '__PGP_ARMOR_SPLICE__';
  * Returns a marker guaranteed not to already appear in `html` — the input is
  * attacker-influenceable PGP message content, so the base marker alone can't
  * be assumed unique, however unlikely a literal collision is in practice.
+ * Exported for tests only, so the collision path can be exercised directly
+ * (constructing a real collision from outside would otherwise require
+ * hardcoding the exact marker text, including its non-printing characters).
  */
-function pickSpliceMarker(html) {
+export function pickSpliceMarker(html) {
   let marker = ARMOR_SPLICE_MARKER_BASE;
   for (let i = 0; html.includes(marker); i++) {
     marker = `${ARMOR_SPLICE_MARKER_BASE}${i}`;
