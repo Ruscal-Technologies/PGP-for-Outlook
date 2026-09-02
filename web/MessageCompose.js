@@ -114,6 +114,15 @@ let _has18 = false;
  */
 let _has110 = false;
 
+/**
+ * True when the host meets Mailbox 1.14. Required for item.inReplyTo, used
+ * as a fallback scoping ID for the reply-handoff BroadcastChannel listener
+ * when item.conversationId is unavailable (see setupReplyHandoffListener).
+ * Set once in Office.onReady via Office.context.requirements.isSetSupported().
+ * @type {boolean}
+ */
+let _has114 = false;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function el(id) { return document.getElementById(id); }
@@ -807,15 +816,16 @@ const REPLY_HANDOFF_LISTEN_TIMEOUT_MS = 12000;
 let _replyHandoffConsumed = false;
 
 /**
- * Called from Office.onReady with no arguments in production (`has110`
- * defaults to the real feature-detected _has110). Exported, and `has110`
- * made an explicit parameter rather than only reading module state, so
- * tests can exercise both branches deterministically without needing
+ * Called from Office.onReady with no arguments in production (`has110`/
+ * `has114` default to the real feature-detected _has110/_has114). Exported,
+ * and both made explicit parameters rather than only reading module state,
+ * so tests can exercise every branch deterministically without needing
  * Office.onReady itself to run.
  *
  * @param {boolean} [has110]
+ * @param {boolean} [has114]
  */
-export async function setupReplyHandoffListener(has110 = _has110) {
+export async function setupReplyHandoffListener(has110 = _has110, has114 = _has114) {
   if (typeof BroadcastChannel !== 'function') return;
 
   if (has110) {
@@ -831,18 +841,25 @@ export async function setupReplyHandoffListener(has110 = _has110) {
   // _has110 false: can't confirm compose type, so listen anyway (broader
   // exposure on older hosts only, still bounded by the timeout below).
 
+  // Prefer conversationId, but fall back to inReplyTo (Mailbox 1.14 -- the
+  // internet message ID of the message being replied to) when it's missing.
+  // MessageRead.js derives the matching scoping ID the same way, from its
+  // own item.conversationId / item.internetMessageId. See
+  // openNativeReplyWithHandoff.
   const conversationId = Office.context.mailbox.item.conversationId;
-  if (!conversationId) {
-    // Without a conversationId there's no way to scope the channel per-
-    // conversation -- falling back to the shared base channel name would let
-    // any same-origin page listen for this (and every other) large reply's
+  const inReplyTo = has114 ? Office.context.mailbox.item.inReplyTo : undefined;
+  const scopingId = conversationId || inReplyTo;
+  if (!scopingId) {
+    // No way to scope the channel to this specific conversation/message at
+    // all -- falling back to the shared base channel name would let any
+    // same-origin page listen for this (and every other) large reply's
     // decrypted plaintext. Treat this the same as "handoff unavailable" and
     // don't listen at all; MessageRead.js makes the matching decision on its
     // side (see openNativeReplyWithHandoff).
     return;
   }
 
-  const channelName = getReplyHandoffChannelName(conversationId);
+  const channelName = getReplyHandoffChannelName(scopingId);
   let channel;
   try {
     channel = new BroadcastChannel(channelName);
@@ -1221,6 +1238,7 @@ Office.onReady(async () => {
   _isWebOutlook = Office.context.platform === Office.PlatformType.OfficeOnline;
   _has18 = Office.context.requirements.isSetSupported('Mailbox', '1.8');
   _has110 = Office.context.requirements.isSetSupported('Mailbox', '1.10');
+  _has114 = Office.context.requirements.isSetSupported('Mailbox', '1.14');
 
   // Fire-and-forget: inert for every ordinary compose window unless a
   // matching reply-handoff broadcast actually arrives (see its own docblock).

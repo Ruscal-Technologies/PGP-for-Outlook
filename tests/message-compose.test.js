@@ -110,7 +110,7 @@ describe('reply handoff (BroadcastChannel)', () => {
     ]);
   }
 
-  function makeOfficeStub({ bodyHtml, composeType, conversationId }) {
+  function makeOfficeStub({ bodyHtml, composeType, conversationId, inReplyTo }) {
     let savedBody = null;
     let setAsyncCalled = false;
     const office = {
@@ -122,6 +122,7 @@ describe('reply handoff (BroadcastChannel)', () => {
         mailbox: {
           item: {
             conversationId,
+            inReplyTo,
             getComposeTypeAsync: (cb) => cb({ status: 'succeeded', value: { composeType } }),
             body: {
               getAsync: (_coercionType, cb) => cb({ status: 'succeeded', value: bodyHtml }),
@@ -378,6 +379,65 @@ describe('reply handoff (BroadcastChannel)', () => {
       };
     });
     sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-5', text: 'decrypted text', isHtml: false });
+
+    const result = await raceTimeout(acked, 300);
+    sender.close();
+
+    expect(result.settled).toBe(false);
+    expect(wasSetAsyncCalled()).toBe(false);
+  });
+
+  it('falls back to inReplyTo as the scoping ID when conversationId is missing but inReplyTo (Mailbox 1.14) is available', async () => {
+    const inReplyTo = '<abc123@example.com>';
+    const { office, getSavedBody } = makeOfficeStub({
+      bodyHtml: `<div>Reply header info</div><div>${ARMOR}</div>`,
+      composeType: 'reply',
+      conversationId: undefined,
+      inReplyTo,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true, true); // has110=true, has114=true
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(inReplyTo));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-6', text: 'the decrypted message', isHtml: false });
+
+    await expect(acked).resolves.toBe('test-token-6');
+    sender.close();
+
+    expect(getSavedBody()).toContain('the decrypted message');
+  });
+
+  it('does not fall back to inReplyTo when has114 is false (host too old to support it), even if the item happens to have one', async () => {
+    const inReplyTo = '<abc123@example.com>';
+    const { office, wasSetAsyncCalled } = makeOfficeStub({
+      bodyHtml: `<div>${ARMOR}</div>`,
+      composeType: 'reply',
+      conversationId: undefined,
+      inReplyTo,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true, false); // has110=true, has114=false
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(inReplyTo));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-7', text: 'decrypted text', isHtml: false });
 
     const result = await raceTimeout(acked, 300);
     sender.close();

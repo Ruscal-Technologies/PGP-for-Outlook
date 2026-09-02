@@ -1400,15 +1400,20 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
   const item = Office.context.mailbox.item;
   const fallBack = () => openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, true);
 
-  if (!item.conversationId) {
-    // Without a conversationId there's no way to scope the handoff channel
-    // per-conversation -- falling back to the shared base channel name would
+  // Prefer conversationId, but fall back to internetMessageId (available
+  // since Mailbox 1.1, broader than conversationId) when it's missing --
+  // MessageCompose.js derives the matching scoping ID the same way, from
+  // its own item.conversationId / item.inReplyTo (the internet message ID
+  // of the message it's replying to). See setupReplyHandoffListener.
+  const scopingId = item.conversationId || item.internetMessageId;
+  if (!scopingId) {
+    // No way to scope the handoff channel to this specific conversation/
+    // message at all -- falling back to the shared base channel name would
     // let any same-origin page listen for this (and every other) large
     // reply's decrypted plaintext. Treat this as "handoff unavailable" and
-    // skip straight to the existing path, rather than opening a native reply
-    // we can't safely hand plaintext to. MessageCompose.js makes the
-    // matching decision on its side (see setupReplyHandoffListener).
-    console.error('Native reply: missing conversationId, skipping handoff');
+    // skip straight to the existing path, rather than opening a native
+    // reply we can't safely hand plaintext to.
+    console.error('Native reply: no conversationId or internetMessageId available, skipping handoff');
     fallBack();
     return;
   }
@@ -1433,7 +1438,7 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
 
   let channel;
   try {
-    channel = new BroadcastChannel(getReplyHandoffChannelName(item.conversationId));
+    channel = new BroadcastChannel(getReplyHandoffChannelName(scopingId));
   } catch (e) {
     console.error('Native reply: BroadcastChannel construction failed', e);
     fallBack();
