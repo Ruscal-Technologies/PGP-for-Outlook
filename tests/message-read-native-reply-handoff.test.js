@@ -69,6 +69,9 @@ describe('openNativeReplyWithHandoff — missing conversationId', () => {
     // channel safely.
     expect(displayReplyAllForm).toHaveBeenCalledTimes(1);
     expect(displayReplyForm).not.toHaveBeenCalled();
+    // formData is a required parameter of both APIs (issue #20) -- calling
+    // with zero arguments throws synchronously on every real invocation.
+    expect(displayReplyAllForm).toHaveBeenCalledWith('');
 
     // Confirm it's actually broadcasting on the internetMessageId-derived
     // channel (not the shared base channel), and ack it so the retry
