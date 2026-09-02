@@ -1,0 +1,497 @@
+// @vitest-environment jsdom
+//
+// stripPgpArmorBlock() walks/mutates/re-serializes a real DOM (parses HTML,
+// sets textContent on specific nodes, reads innerHTML back) -- a hand-rolled
+// fake risks subtly diverging from real browser HTML parsing/serialization
+// semantics for exactly the function whose correctness matters most in this
+// feature, so this file runs under jsdom (real DOM) rather than this repo's
+// usual small hand-rolled stubs (see tests/quoted-content.test.js for why
+// those suffice elsewhere: no mutate-and-reserialize step there).
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+let stripPgpArmorBlock;
+let pickSpliceMarker;
+
+beforeEach(async () => {
+  // MessageCompose.js calls Office.onReady(...) at module load time; the
+  // no-op stub (matching tests/message-read-popout.test.js's convention)
+  // means that callback body never actually runs under test -- irrelevant
+  // here, since stripPgpArmorBlock and the module-level BroadcastChannel
+  // handoff listener (tested separately below) don't depend on it.
+  global.Office = { onReady: () => {} };
+  ({ stripPgpArmorBlock, pickSpliceMarker } = await import('../web/MessageCompose.js'));
+});
+
+const ARMOR = '-----BEGIN PGP MESSAGE-----\nVersion: Test\n\nabc123==\n-----END PGP MESSAGE-----';
+
+describe('stripPgpArmorBlock', () => {
+  it('removes an armor block contained in a single text node', () => {
+    const html = `<div>before-text ${ARMOR} after-text</div>`;
+    const { found, before, after } = stripPgpArmorBlock(html);
+
+    expect(found).toBe(true);
+    expect(before).toContain('before-text');
+    expect(before).not.toContain('BEGIN PGP MESSAGE');
+    expect(after).toContain('after-text');
+    expect(after).not.toContain('END PGP MESSAGE');
+  });
+
+  it('removes an armor block split across <br>-joined lines', () => {
+    const lines = ARMOR.split('\n').join('<br>');
+    const html = `<div>before-text<br>${lines}<br>after-text</div>`;
+    const { found, before, after } = stripPgpArmorBlock(html);
+
+    expect(found).toBe(true);
+    expect(before).toContain('before-text');
+    expect(after).toContain('after-text');
+    expect(before + after).not.toContain('BEGIN PGP MESSAGE');
+  });
+
+  it('removes an armor block inside a <pre> (matches this add-in\'s own setBodyAsync wrapping)', () => {
+    const html = `<html><body><div>before-text</div><pre style="white-space:pre-wrap;">${ARMOR}</pre><div>after-text</div></body></html>`;
+    const { found, before, after } = stripPgpArmorBlock(html);
+
+    expect(found).toBe(true);
+    expect(before).toContain('before-text');
+    expect(after).toContain('after-text');
+    expect(before + after).not.toContain('BEGIN PGP MESSAGE');
+  });
+
+  it('removes an armor block nested inside a blockquote, preserving unrelated sibling content', () => {
+    const html = `<div><p>Reply text</p><blockquote><p>unrelated quote line</p><div>${ARMOR}</div></blockquote></div>`;
+    const { found, before, after } = stripPgpArmorBlock(html);
+
+    expect(found).toBe(true);
+    expect(before).toContain('Reply text');
+    expect(before).toContain('unrelated quote line');
+    expect(before + after).not.toContain('BEGIN PGP MESSAGE');
+  });
+
+  it('returns found:false when no armor block is present, without mutating anything', () => {
+    const html = '<div>just a normal reply, nothing encrypted here</div>';
+    const result = stripPgpArmorBlock(html);
+    expect(result).toEqual({ found: false });
+  });
+
+  it('returns found:false when BEGIN is present but END never appears', () => {
+    const html = '<div>-----BEGIN PGP MESSAGE-----\nabc123 (truncated, no end marker)</div>';
+    const result = stripPgpArmorBlock(html);
+    expect(result).toEqual({ found: false });
+  });
+
+  it('picks a non-colliding marker when the base marker text already appears in the input', () => {
+    // Discover the REAL base marker via the exported picker (it contains
+    // non-printing characters, so hardcoding a plain-text guess here -- as
+    // an earlier version of this test did -- would silently never collide
+    // and never actually exercise the fallback-suffix loop).
+    const baseMarker = pickSpliceMarker('');
+    const picked = pickSpliceMarker(`some text with ${baseMarker} already in it`);
+
+    expect(picked).not.toBe(baseMarker);
+    expect(`some text with ${baseMarker} already in it`).not.toContain(picked);
+  });
+
+  it('still splits correctly when the input already contains the real base splice marker literally', () => {
+    // The internal marker is only an implementation detail, but the input is
+    // attacker-influenceable PGP message content -- a literal collision must
+    // not corrupt the split (e.g. drop content, or leak the marker itself).
+    const baseMarker = pickSpliceMarker('');
+    const html = `<div>before ${baseMarker} text ${ARMOR} after ${baseMarker} text</div>`;
+    const { found, before, after } = stripPgpArmorBlock(html);
+
+    expect(found).toBe(true);
+    expect(before).toContain(`before ${baseMarker} text`);
+    expect(after).toContain(`after ${baseMarker} text`);
+    expect(before + after).not.toContain('BEGIN PGP MESSAGE');
+  });
+});
+
+describe('reply handoff (BroadcastChannel)', () => {
+  let conversationCounter = 0;
+
+  function makeConversationId() {
+    conversationCounter += 1;
+    return `conversation-test-${conversationCounter}`;
+  }
+
+  // Waits for `promise` to settle, or for `ms` to pass with nothing
+  // happening -- used to positively assert "no ack arrives" without waiting
+  // out a full real timeout.
+  function raceTimeout(promise, ms) {
+    return Promise.race([
+      promise.then((v) => ({ settled: true, value: v })),
+      new Promise((resolve) => setTimeout(() => resolve({ settled: false }), ms)),
+    ]);
+  }
+
+  function makeOfficeStub({ bodyHtml, composeType, conversationId, inReplyTo }) {
+    let savedBody = null;
+    let setAsyncCalled = false;
+    const office = {
+      onReady: () => {},
+      CoercionType: { Html: 'html', Text: 'text' },
+      AsyncResultStatus: { Succeeded: 'succeeded', Failed: 'failed' },
+      MailboxEnums: { ComposeType: { Reply: 'reply', ReplyAll: 'replyAll', NewMail: 'newMail', Forward: 'forward' } },
+      context: {
+        mailbox: {
+          item: {
+            conversationId,
+            inReplyTo,
+            getComposeTypeAsync: (cb) => cb({ status: 'succeeded', value: { composeType } }),
+            body: {
+              getAsync: (_coercionType, cb) => cb({ status: 'succeeded', value: bodyHtml }),
+              setAsync: (html, _options, cb) => { savedBody = html; setAsyncCalled = true; cb({ status: 'succeeded' }); },
+            },
+          },
+        },
+      },
+    };
+    return { office, getSavedBody: () => savedBody, wasSetAsyncCalled: () => setAsyncCalled };
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="status-bar" class="pgp-hidden"></div>';
+  });
+
+  it('acks a matching handoff broadcast and splices the decrypted content into the body, replacing the armor', async () => {
+    const conversationId = makeConversationId();
+    const { office, getSavedBody } = makeOfficeStub({
+      bodyHtml: `<div>Reply header info</div><div>${ARMOR}</div>`,
+      composeType: 'reply',
+      conversationId,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true); // has110=true -> exercises the getComposeTypeAsync gate
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-1', text: 'the decrypted message', isHtml: false });
+
+    await expect(acked).resolves.toBe('test-token-1');
+    sender.close();
+
+    const savedBody = getSavedBody();
+    expect(savedBody).toContain('Reply header info');
+    expect(savedBody).toContain('the decrypted message');
+    expect(savedBody).not.toContain('BEGIN PGP MESSAGE');
+  });
+
+  it('sets up the handoff listener for Reply All compose windows too (Office reports composeType "reply" for both)', async () => {
+    const conversationId = makeConversationId();
+    const { office, getSavedBody } = makeOfficeStub({
+      bodyHtml: `<div>Reply-all header info</div><div>${ARMOR}</div>`,
+      composeType: 'reply', // Office.MailboxEnums.ComposeType has no distinct ReplyAll value
+      conversationId,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-reply-all', text: 'reply all decrypted message', isHtml: false });
+
+    await expect(acked).resolves.toBe('test-token-reply-all');
+    sender.close();
+
+    const savedBody = getSavedBody();
+    expect(savedBody).toContain('Reply-all header info');
+    expect(savedBody).toContain('reply all decrypted message');
+    expect(savedBody).not.toContain('BEGIN PGP MESSAGE');
+  });
+
+  it('does not ack, and does not write the body, when no armor block is found (so MessageRead.js\'s fallback can still trigger)', async () => {
+    const conversationId = makeConversationId();
+    const { office, wasSetAsyncCalled } = makeOfficeStub({
+      bodyHtml: '<div>no armor here</div>',
+      composeType: 'reply',
+      conversationId,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-2', text: 'decrypted text', isHtml: false });
+
+    const result = await raceTimeout(acked, 300);
+    sender.close();
+
+    expect(result.settled).toBe(false); // no ack -- read pane's timeout fallback must still be able to fire
+    expect(wasSetAsyncCalled()).toBe(false);
+    expect(document.getElementById('status-bar').textContent).toContain('Could not find the encrypted message');
+  });
+
+  it('does not ack when the body write itself fails', async () => {
+    const conversationId = makeConversationId();
+    const office = {
+      onReady: () => {},
+      CoercionType: { Html: 'html', Text: 'text' },
+      AsyncResultStatus: { Succeeded: 'succeeded', Failed: 'failed' },
+      MailboxEnums: { ComposeType: { Reply: 'reply', ReplyAll: 'replyAll', NewMail: 'newMail', Forward: 'forward' } },
+      context: {
+        mailbox: {
+          item: {
+            conversationId,
+            getComposeTypeAsync: (cb) => cb({ status: 'succeeded', value: { composeType: 'reply' } }),
+            body: {
+              getAsync: (_coercionType, cb) => cb({ status: 'succeeded', value: `<div>${ARMOR}</div>` }),
+              setAsync: (_html, _options, cb) => cb({ status: 'failed', error: { message: 'simulated setAsync failure' } }),
+            },
+          },
+        },
+      },
+    };
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-3', text: 'decrypted text', isHtml: false });
+
+    const result = await raceTimeout(acked, 300);
+    sender.close();
+
+    expect(result.settled).toBe(false);
+    expect(document.getElementById('status-bar').textContent).toContain('Could not automatically insert');
+  });
+
+  it('keeps listening after an early splice miss so a later rebroadcast can still succeed', async () => {
+    const conversationId = makeConversationId();
+    let getAsyncCalls = 0;
+    let savedBody = null;
+    const office = {
+      onReady: () => {},
+      CoercionType: { Html: 'html', Text: 'text' },
+      AsyncResultStatus: { Succeeded: 'succeeded', Failed: 'failed' },
+      MailboxEnums: { ComposeType: { Reply: 'reply', ReplyAll: 'replyAll', NewMail: 'newMail', Forward: 'forward' } },
+      context: {
+        mailbox: {
+          item: {
+            conversationId,
+            getComposeTypeAsync: (cb) => cb({ status: 'succeeded', value: { composeType: 'reply' } }),
+            body: {
+              getAsync: (_coercionType, cb) => {
+                getAsyncCalls += 1;
+                cb({
+                  status: 'succeeded',
+                  value: getAsyncCalls === 1 ? '<div>still loading native quote</div>' : `<div>Reply header info</div><div>${ARMOR}</div>`,
+                });
+              },
+              setAsync: (html, _options, cb) => { savedBody = html; cb({ status: 'succeeded' }); },
+            },
+          },
+        },
+      },
+    };
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-retry', text: 'decrypted after retry', isHtml: false });
+    const retryTimer = setTimeout(() => {
+      sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-retry', text: 'decrypted after retry', isHtml: false });
+    }, 25);
+
+    await expect(acked).resolves.toBe('test-token-retry');
+    clearTimeout(retryTimer);
+    sender.close();
+
+    expect(getAsyncCalls).toBeGreaterThanOrEqual(2);
+    expect(savedBody).toContain('Reply header info');
+    expect(savedBody).toContain('decrypted after retry');
+    expect(savedBody).not.toContain('BEGIN PGP MESSAGE');
+  });
+
+  it('shows the failure warning only once, not on every retry, when the splice keeps failing identically', async () => {
+    // Regression: MessageRead.js re-broadcasts every ~400ms for up to ~10s,
+    // and each retry independently re-runs applyReplyHandoff (handoffInFlight
+    // only blocks *overlapping* attempts, not sequential ones) -- a splice
+    // that fails the same way every time must not re-flash the same warning
+    // on every single retry.
+    const conversationId = makeConversationId();
+    const { office } = makeOfficeStub({
+      bodyHtml: '<div>no armor here, ever</div>', // every attempt fails identically
+      composeType: 'reply',
+      conversationId,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const statusEl = document.getElementById('status-bar');
+    const textSetter = vi.spyOn(statusEl, 'textContent', 'set');
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    // Simulate three of MessageRead.js's retry broadcasts (same token, as a
+    // real retry loop would send).
+    for (let i = 0; i < 3; i++) {
+      sender.postMessage({ type: 'pgp-reply-handoff', token: 'retry-token', text: 'x', isHtml: false });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    sender.close();
+
+    expect(textSetter).toHaveBeenCalledTimes(1);
+    expect(statusEl.textContent).toContain('Could not find the encrypted message');
+  });
+
+  it('never sets up a listener at all for a non-reply compose window (newMail/forward)', async () => {
+    const conversationId = makeConversationId();
+    const { office, wasSetAsyncCalled } = makeOfficeStub({
+      bodyHtml: `<div>${ARMOR}</div>`,
+      composeType: 'newMail',
+      conversationId,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-4', text: 'decrypted text', isHtml: false });
+
+    const result = await raceTimeout(acked, 300);
+    sender.close();
+
+    expect(result.settled).toBe(false);
+    expect(wasSetAsyncCalled()).toBe(false);
+  });
+
+  it('never sets up a listener when conversationId is missing, even for a genuine reply -- refuses the shared base channel', async () => {
+    const { office, wasSetAsyncCalled } = makeOfficeStub({
+      bodyHtml: `<div>${ARMOR}</div>`,
+      composeType: 'reply',
+      conversationId: undefined,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true);
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    // The base (unscoped) channel name -- the one thing this must NOT listen on.
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(undefined));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-5', text: 'decrypted text', isHtml: false });
+
+    const result = await raceTimeout(acked, 300);
+    sender.close();
+
+    expect(result.settled).toBe(false);
+    expect(wasSetAsyncCalled()).toBe(false);
+  });
+
+  it('falls back to inReplyTo as the scoping ID when conversationId is missing but inReplyTo (Mailbox 1.14) is available', async () => {
+    const inReplyTo = '<abc123@example.com>';
+    const { office, getSavedBody } = makeOfficeStub({
+      bodyHtml: `<div>Reply header info</div><div>${ARMOR}</div>`,
+      composeType: 'reply',
+      conversationId: undefined,
+      inReplyTo,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true, true); // has110=true, has114=true
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(inReplyTo));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-6', text: 'the decrypted message', isHtml: false });
+
+    await expect(acked).resolves.toBe('test-token-6');
+    sender.close();
+
+    expect(getSavedBody()).toContain('the decrypted message');
+  });
+
+  it('does not fall back to inReplyTo when has114 is false (host too old to support it), even if the item happens to have one', async () => {
+    const inReplyTo = '<abc123@example.com>';
+    const { office, wasSetAsyncCalled } = makeOfficeStub({
+      bodyHtml: `<div>${ARMOR}</div>`,
+      composeType: 'reply',
+      conversationId: undefined,
+      inReplyTo,
+    });
+    global.Office = office;
+
+    vi.resetModules();
+    const { setupReplyHandoffListener } = await import('../web/MessageCompose.js');
+    await setupReplyHandoffListener(true, false); // has110=true, has114=false
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(inReplyTo));
+    const acked = new Promise((resolve) => {
+      sender.onmessage = (event) => {
+        if (event.data?.type === 'pgp-reply-handoff-ack') resolve(event.data.token);
+      };
+    });
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'test-token-7', text: 'decrypted text', isHtml: false });
+
+    const result = await raceTimeout(acked, 300);
+    sender.close();
+
+    expect(result.settled).toBe(false);
+    expect(wasSetAsyncCalled()).toBe(false);
+  });
+});
