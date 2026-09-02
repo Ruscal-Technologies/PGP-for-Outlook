@@ -23,6 +23,17 @@ async function onNewMessageComposeHandler(event) {
       composeType,
       conversationId: Office.context.mailbox.item.conversationId,
     });
+    // A visible info-bar notification, not just a console.log -- classic
+    // Outlook Windows may not have accessible DevTools for this hidden
+    // runtime at all (see ReplyHandoffRuntime.classic.js's comments), so
+    // this is the one signal guaranteed visible on every platform while
+    // confirming step 1 of #22's plan (does the event fire at all).
+    Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_step1', {
+      type: Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
+      icon: 'icon16',
+      message: 'ReplyHandoffRuntime (browser) fired: composeType=' + composeType,
+      persistent: false,
+    });
   } catch (e) {
     console.error('ReplyHandoffRuntime: handler failed', e);
   } finally {

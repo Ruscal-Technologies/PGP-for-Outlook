@@ -34,11 +34,25 @@ function onNewMessageComposeHandler(event) {
       if (result.status === Office.AsyncResultStatus.Succeeded) {
         composeType = result.value.composeType;
       }
+      var hasDocument = typeof document !== 'undefined';
+      var hasBroadcastChannel = typeof BroadcastChannel !== 'undefined';
       console.log('ReplyHandoffRuntime.classic: OnNewMessageCompose fired', {
         composeType: composeType,
         conversationId: Office.context.mailbox.item.conversationId,
-        hasDocument: typeof document !== 'undefined',
-        hasBroadcastChannel: typeof BroadcastChannel !== 'undefined',
+        hasDocument: hasDocument,
+        hasBroadcastChannel: hasBroadcastChannel,
+      });
+      // A visible info-bar notification, not just a console.log -- classic
+      // Outlook Windows may not have accessible DevTools for this hidden
+      // JS-only runtime at all, so this is the one signal guaranteed
+      // visible here while confirming step 1 of #22's plan (does the
+      // event fire, and does document/BroadcastChannel exist here).
+      Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_step1', {
+        type: Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
+        icon: 'icon16',
+        message: 'ReplyHandoffRuntime (classic) fired: composeType=' + composeType +
+          ' document=' + hasDocument + ' BroadcastChannel=' + hasBroadcastChannel,
+        persistent: false,
       });
       finish();
     });
