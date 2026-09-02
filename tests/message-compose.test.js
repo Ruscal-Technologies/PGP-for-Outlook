@@ -77,6 +77,19 @@ describe('stripPgpArmorBlock', () => {
     const result = stripPgpArmorBlock(html);
     expect(result).toEqual({ found: false });
   });
+
+  it('still splits correctly when the input already contains the base splice marker text literally', () => {
+    // The internal marker is only an implementation detail, but the input is
+    // attacker-influenceable PGP message content -- a literal collision must
+    // not corrupt the split (e.g. drop content, or leak the marker itself).
+    const html = `<div>before __PGP_ARMOR_SPLICE__ text ${ARMOR} after __PGP_ARMOR_SPLICE__ text</div>`;
+    const { found, before, after } = stripPgpArmorBlock(html);
+
+    expect(found).toBe(true);
+    expect(before).toContain('before __PGP_ARMOR_SPLICE__ text');
+    expect(after).toContain('after __PGP_ARMOR_SPLICE__ text');
+    expect(before + after).not.toContain('BEGIN PGP MESSAGE');
+  });
 });
 
 describe('reply handoff (BroadcastChannel)', () => {

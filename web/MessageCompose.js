@@ -900,7 +900,20 @@ async function applyReplyHandoff(text, isHtml) {
 // Internal splitting delimiter for stripPgpArmorBlock() — a Private Use Area
 // character sequence that can never appear in real email text, and survives
 // HTML (de)serialization unescaped (no &, <, >, or ").
-const ARMOR_SPLICE_MARKER = '__PGP_ARMOR_SPLICE__';
+const ARMOR_SPLICE_MARKER_BASE = '__PGP_ARMOR_SPLICE__';
+
+/**
+ * Returns a marker guaranteed not to already appear in `html` — the input is
+ * attacker-influenceable PGP message content, so the base marker alone can't
+ * be assumed unique, however unlikely a literal collision is in practice.
+ */
+function pickSpliceMarker(html) {
+  let marker = ARMOR_SPLICE_MARKER_BASE;
+  for (let i = 0; html.includes(marker); i++) {
+    marker = `${ARMOR_SPLICE_MARKER_BASE}${i}`;
+  }
+  return marker;
+}
 
 /**
  * Locates the PGP armor block (`-----BEGIN PGP MESSAGE-----` through
@@ -973,6 +986,7 @@ export function stripPgpArmorBlock(html) {
   if (endMarkerIdx === -1) return { found: false };
   const endIdx = endMarkerIdx + '-----END PGP MESSAGE-----'.length;
 
+  const marker = pickSpliceMarker(html);
   let markerPlaced = false;
   for (const seg of segments) {
     if (seg.end <= beginIdx || seg.start >= endIdx) continue; // no overlap
@@ -980,12 +994,20 @@ export function stripPgpArmorBlock(html) {
     const localBegin = Math.max(0, beginIdx - seg.start);
     const localEnd = Math.min(seg.end - seg.start, endIdx - seg.start);
     const text = seg.node.textContent;
-    seg.node.textContent = text.slice(0, localBegin) + (markerPlaced ? '' : ARMOR_SPLICE_MARKER) + text.slice(localEnd);
+    seg.node.textContent = text.slice(0, localBegin) + (markerPlaced ? '' : marker) + text.slice(localEnd);
     markerPlaced = true;
   }
 
   const spliced = div.innerHTML;
-  const [before, after] = spliced.split(ARMOR_SPLICE_MARKER);
+  const parts = spliced.split(marker);
+  // Anything other than exactly 2 parts means the marker either never made
+  // it into the serialized output, or (despite pickSpliceMarker's check
+  // against the raw input) something produced more copies of it than
+  // expected -- either way, splicing on an assumption that doesn't hold
+  // would corrupt the reply body, so bail out the same safe way as "not
+  // found" rather than guess.
+  if (parts.length !== 2) return { found: false };
+  const [before, after] = parts;
   return { found: true, before, after };
 }
 

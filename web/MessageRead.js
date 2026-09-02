@@ -1170,10 +1170,13 @@ function downloadBytes(bytes, filename) {
 // a large quoted message degrades gracefully instead of crashing the reply.
 const MAX_REPLY_HTML_BODY_LENGTH = 31000;
 
-// Exported so handleReplyEncrypted can detect "this message needed the old
-// path's truncation" without duplicating the size check — see its own
-// size-based branch between this (small messages) and the native-reply +
-// BroadcastChannel handoff path (large messages).
+// Appended to the quote when it had to be truncated to fit maxLength.
+// Exported for tests only — handleReplyEncrypted detects truncation via
+// buildQuotedReplyHtml()'s own returned `truncated` flag, not by
+// string-searching the output for this text: the decrypted message could
+// legitimately *contain* this exact string (e.g. quoting an earlier reply
+// that itself got truncated), which would make an .includes() check
+// false-positive on an otherwise normal-sized message.
 export const REPLY_TRUNCATION_NOTICE = '<br><em>[Original message truncated — too large to quote in full]</em>';
 
 /**
@@ -1190,7 +1193,9 @@ export const REPLY_TRUNCATION_NOTICE = '<br><em>[Original message truncated — 
  * @param {string} senderName
  * @param {string} sentDate
  * @param {number} [maxLength]
- * @returns {string} wrapped, size-capped HTML ready to use as formData.htmlBody
+ * @returns {{html: string, truncated: boolean}} `html` is wrapped, size-capped
+ *   HTML ready to use as formData.htmlBody; `truncated` is true only when
+ *   this call actually had to shorten/degrade the content to fit.
  */
 export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName, sentDate, maxLength = MAX_REPLY_HTML_BODY_LENGTH) {
   const quoteHeader = `<br>--- Original message${senderName ? ` from ${escHtml(senderName)}` : ''}${sentDate ? ` on ${escHtml(sentDate)}` : ''} ---<br>`;
@@ -1217,7 +1222,9 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
     wrap = wrapText;
   }
 
+  let truncated = false;
   if (wrap(bodyContent).length > maxLength) {
+    truncated = true;
     const overhead = wrap('').length + REPLY_TRUNCATION_NOTICE.length;
     bodyContent = bodyContent.slice(0, Math.max(0, maxLength - overhead)) + REPLY_TRUNCATION_NOTICE;
   }
@@ -1227,7 +1234,8 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
   // overhead itself, the slice above still leaves `result` over budget.
   // Guarantee the size contract always holds, even for a degenerate
   // maxLength — this matters more than well-formed HTML in that case.
-  return result.length > maxLength ? result.slice(0, maxLength) : result;
+  const html = result.length > maxLength ? result.slice(0, maxLength) : result;
+  return { html, truncated };
 }
 
 // How long to keep re-broadcasting the handoff before giving up and falling
@@ -1285,6 +1293,7 @@ function handleReplyEncrypted(replyAll) {
 
   // ── Quoted body ───────────────────────────────────────────────────────────
   let htmlBody = '';
+  let wouldTruncate = false;
   if (_decryptedText) {
     const senderName = item.from?.displayName || item.from?.emailAddress || '';
     const sentDate    = item.dateTimeCreated
@@ -1292,7 +1301,7 @@ function handleReplyEncrypted(replyAll) {
           dateStyle: 'medium', timeStyle: 'short',
         })
       : '';
-    htmlBody = buildQuotedReplyHtml(_decryptedText, _decryptedIsHtml, senderName, sentDate);
+    ({ html: htmlBody, truncated: wouldTruncate } = buildQuotedReplyHtml(_decryptedText, _decryptedIsHtml, senderName, sentDate));
   }
 
   // buildQuotedReplyHtml() already had to truncate — the message is too big
@@ -1301,7 +1310,6 @@ function handleReplyEncrypted(replyAll) {
   // the full decrypted content in from inside the new compose window via
   // Body.setAsync (1 MB limit) — see openNativeReplyWithHandoff. Everything
   // else (the common case: messages that fit) keeps today's exact behavior.
-  const wouldTruncate = htmlBody.includes(REPLY_TRUNCATION_NOTICE);
   if (wouldTruncate && typeof BroadcastChannel === 'function') {
     openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients, subject, htmlBody);
     return;

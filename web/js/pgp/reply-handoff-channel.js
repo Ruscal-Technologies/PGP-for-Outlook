@@ -6,14 +6,22 @@
  * this same function so their derivation can never drift apart (a mismatch
  * would silently break every large-message reply, with no error).
  *
+ * Uses the conversation ID directly (URI-encoded), not a hash of it: a fixed
+ * 32-bit (or any bounded-width) hash has a real collision probability at
+ * scale, which would make two unrelated conversations share a channel name —
+ * cross-talk that could splice one conversation's decrypted plaintext into
+ * another's reply, or leak it there. The conversation ID itself isn't secret
+ * (anyone with access to the message already has it), so encoding it
+ * directly costs nothing and can't collide.
+ *
  * NOT a secrecy boundary: BroadcastChannel is same-origin-only already, and
- * this is a plain (non-cryptographic) hash of the conversation ID, not a
- * secret — a co-located attacker who already knows which conversation to
- * target could recompute it. Its purpose is narrowing blast radius: a
- * listener needs to already know which conversation to target, rather than
- * one fixed name every large reply in the product shares. The real
- * mitigations for a same-origin eavesdropper are MessageCompose.js's
- * compose-type gating and bounded listener lifetime (see its own comments).
+ * the conversation ID isn't a secret — a co-located attacker who already
+ * knows which conversation to target could reconstruct this name outright.
+ * Its purpose is narrowing blast radius: a listener needs to already know
+ * which conversation to target, rather than one fixed name every large reply
+ * in the product shares. The real mitigations for a same-origin eavesdropper
+ * are MessageCompose.js's compose-type gating and bounded listener lifetime
+ * (see its own comments).
  */
 
 const BASE_CHANNEL_NAME = 'pgp_reply_handoff';
@@ -24,16 +32,5 @@ const BASE_CHANNEL_NAME = 'pgp_reply_handoff';
  */
 export function getReplyHandoffChannelName(conversationId) {
   if (!conversationId) return BASE_CHANNEL_NAME;
-  return `${BASE_CHANNEL_NAME}_${hashString(conversationId)}`;
-}
-
-// FNV-1a — fast, deterministic, no crypto dependency; see module docblock
-// for why this doesn't need to be cryptographically strong.
-function hashString(text) {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16);
+  return `${BASE_CHANNEL_NAME}_${encodeURIComponent(conversationId)}`;
 }

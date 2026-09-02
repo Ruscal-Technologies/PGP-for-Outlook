@@ -7,13 +7,18 @@ describe('getReplyHandoffChannelName', () => {
     expect(getReplyHandoffChannelName('')).toBe('pgp_reply_handoff');
   });
 
-  it('derives a distinct, deterministic name per conversationId', () => {
+  it('derives a distinct, deterministic name per conversationId, with no possibility of collision', () => {
     const a = getReplyHandoffChannelName('conversation-A');
     const b = getReplyHandoffChannelName('conversation-B');
 
-    expect(a).toMatch(/^pgp_reply_handoff_[0-9a-f]+$/);
-    expect(b).toMatch(/^pgp_reply_handoff_[0-9a-f]+$/);
+    expect(a).toBe(`pgp_reply_handoff_${encodeURIComponent('conversation-A')}`);
+    expect(b).toBe(`pgp_reply_handoff_${encodeURIComponent('conversation-B')}`);
     expect(a).not.toBe(b);
     expect(getReplyHandoffChannelName('conversation-A')).toBe(a);
+  });
+
+  it('URI-encodes characters a real conversationId could contain', () => {
+    const id = 'AAQkAD=/weird+id&chars';
+    expect(getReplyHandoffChannelName(id)).toBe(`pgp_reply_handoff_${encodeURIComponent(id)}`);
   });
 });
