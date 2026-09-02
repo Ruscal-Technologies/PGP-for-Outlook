@@ -596,8 +596,16 @@ The web app has no build step — it is plain HTML/CSS/ES modules.
 npm install -g office-addin-dev-certs http-server
 office-addin-dev-certs install
 
-# Serve the web app
-http-server web --ssl --port 3000
+# Serve the web app — http-server's --ssl flag looks for cert.pem/key.pem in
+# the current directory by default, not the certs office-addin-dev-certs just
+# installed, so point at those explicitly (otherwise: "Could not find
+# certificate cert.pem"):
+http-server web --ssl --cert "$HOME/.office-addin-dev-certs/localhost.crt" --key "$HOME/.office-addin-dev-certs/localhost.key" --port 3000
+```
+
+PowerShell equivalent for the last command:
+```powershell
+http-server web --ssl --cert "$env:USERPROFILE\.office-addin-dev-certs\localhost.crt" --key "$env:USERPROFILE\.office-addin-dev-certs\localhost.key" --port 3000
 ```
 
 Update the manifest to point at `https://localhost:3000/`, then sideload it in

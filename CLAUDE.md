@@ -13,11 +13,19 @@ A Microsoft Outlook add-in (MailApp) that provides end-to-end PGP encryption in 
 npm install -g office-addin-dev-certs http-server
 office-addin-dev-certs install
 
-# Serve the add-in
-http-server web --ssl --port 3000
+# Serve the add-in — http-server's --ssl flag defaults to looking for
+# cert.pem/key.pem in the current directory, NOT the certs office-addin-dev-certs
+# just installed, so those must be pointed to explicitly or the server fails
+# with "Could not find certificate cert.pem":
+http-server web --ssl --cert "$HOME/.office-addin-dev-certs/localhost.crt" --key "$HOME/.office-addin-dev-certs/localhost.key" --port 3000
 ```
 
-Update `manifest/manifest.xml` to point at `https://localhost:3000/`, then sideload it in Outlook following Microsoft's [sideloading guide](https://docs.microsoft.com/en-us/office/dev/add-ins/testing/test-debug-office-add-ins).
+PowerShell equivalent for the last command:
+```powershell
+http-server web --ssl --cert "$env:USERPROFILE\.office-addin-dev-certs\localhost.crt" --key "$env:USERPROFILE\.office-addin-dev-certs\localhost.key" --port 3000
+```
+
+Update `manifest/manifest.xml` to point at `https://localhost:3000/`, then sideload it in Outlook following Microsoft's [sideloading guide](https://docs.microsoft.com/en-us/office/dev/add-ins/testing/test-debug-office-add-ins). Sideloading (not installing from Microsoft Marketplace/the Office Store) is Microsoft's own documented method for testing event-based-activation features (see `web/ReplyHandoffRuntime.js`) locally — it works on classic Outlook Windows, new Outlook Windows, web, and Mac.
 
 ### Tests
 
