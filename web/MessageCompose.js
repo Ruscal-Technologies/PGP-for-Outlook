@@ -1258,7 +1258,7 @@ Office.onReady(async () => {
 
   // Fire-and-forget: inert for every ordinary compose window unless a
   // matching reply-handoff broadcast actually arrives (see its own docblock).
-  setupReplyHandoffListener();
+  setupReplyHandoffListener().catch((e) => console.error('Reply handoff: setup failed', e));
 
   // Load org config
   await loadOrgConfig(userEmail);

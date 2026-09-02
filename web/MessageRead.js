@@ -36,6 +36,18 @@ let _decryptedIsHtml = false;
 /** True when running inside Outlook on iOS or Android. */
 let _isMobile = false;
 
+// True while a large-message native-reply handoff (openNativeReplyWithHandoff)
+// is in flight from THIS reading pane, i.e. between displayReplyForm/
+// displayReplyAllForm succeeding and the handoff settling (ack, timeout, or
+// channel failure). The Reply/Reply All buttons are disabled for the
+// duration so a second click from the same pane can't start a second
+// concurrent handoff that would share (and cross-wire) the same
+// conversation-scoped BroadcastChannel -- see issue #17. This only guards
+// against two attempts from the same pane; it can't prevent two separate
+// Outlook windows on the same conversation from racing each other, since
+// each has its own independent module state.
+let _nativeReplyHandoffInFlight = false;
+
 /**
  * True when the host meets Mailbox 1.7 (Outlook 2021+).
  * Required for item.from (sender email/name in read mode).
@@ -100,6 +112,19 @@ const PGP_POPOUT_HANDSHAKE_TIMEOUT_MS = 10000;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function el(id) { return document.getElementById(id); }
+
+/**
+ * Enables/disables the Reply and Reply All buttons -- used to block a second
+ * concurrent large-message handoff from this same pane while one is already
+ * in flight (see _nativeReplyHandoffInFlight). No-op for any button not
+ * present in the current DOM (e.g. mobile layout).
+ */
+function setReplyButtonsDisabled(disabled) {
+  const replyBtn = el('btn-reply-encrypted');
+  const replyAllBtn = el('btn-reply-all-encrypted');
+  if (replyBtn) replyBtn.disabled = disabled;
+  if (replyAllBtn) replyAllBtn.disabled = disabled;
+}
 
 function escHtml(str) {
   return String(str)
@@ -1279,6 +1304,15 @@ function handleReplyEncrypted(replyAll) {
     return;
   }
 
+  // Refuse to start a second large-message handoff while one from this same
+  // pane is still in flight -- see _nativeReplyHandoffInFlight's docblock
+  // and issue #17. The buttons are also disabled for the duration (below),
+  // this is the functional backstop in case a click still gets through.
+  if (_nativeReplyHandoffInFlight) {
+    showStatus('A reply is already being set up — please wait for it to finish.', 'warning');
+    return;
+  }
+
   // ── Desktop flow ──────────────────────────────────────────────────────────
   const item    = Office.context.mailbox.item;
   const myEmail = (Office.context.mailbox.userProfile?.emailAddress || '').toLowerCase();
@@ -1322,8 +1356,24 @@ function handleReplyEncrypted(replyAll) {
     return;
   }
 
-  openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, false);
+  openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, null);
 }
+
+/**
+ * Reason a handoff attempt fell back to openReplyComposeForm(), used to pick
+ * an accurate warning. 'timeout' and 'channel-failed' both happen *after*
+ * displayReplyForm/displayReplyAllForm already succeeded, so a second
+ * (still-blank/still-armored) native reply window is left open alongside
+ * this one. 'no-scoping-id' and 'display-reply-failed' both happen *before*
+ * any native reply was opened, so there is no second window to mention.
+ * @enum {string}
+ */
+const HandoffFallbackReason = {
+  TIMEOUT: 'timeout',
+  CHANNEL_FAILED: 'channel-failed',
+  NO_SCOPING_ID: 'no-scoping-id',
+  DISPLAY_REPLY_FAILED: 'display-reply-failed',
+};
 
 /**
  * Opens a new-message compose form pre-filled with recipients/subject/quoted
@@ -1332,20 +1382,35 @@ function handleReplyEncrypted(replyAll) {
  * handoff (openNativeReplyWithHandoff) can't be confirmed to have worked for
  * a large one.
  *
- * @param {boolean} isHandoffFallback - true when this is the large-message
- *   fallback path: shown with a distinct warning (and a note that a second,
- *   still-blank/still-armored reply window is also open) instead of the
- *   normal success message.
+ * @param {?string} handoffFallbackReason - null for the normal-sized-message
+ *   path; otherwise one of HandoffFallbackReason, used to show an accurate
+ *   warning instead of the normal success message.
  */
-function openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, isHandoffFallback) {
+function openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, handoffFallbackReason) {
   const formData = { toRecipients, ccRecipients, subject, ...(htmlBody ? { htmlBody } : {}) };
 
   const onSuccess = () => {
-    if (isHandoffFallback) {
+    if (handoffFallbackReason === HandoffFallbackReason.TIMEOUT) {
       showStatus(
         "Reply setup didn't finish in time, so a backup reply window was opened with the message content — " +
         "formatting may have been shortened to fit Outlook's size limit. You can close the other blank reply " +
         'window that also opened.',
+        'warning'
+      );
+    } else if (handoffFallbackReason === HandoffFallbackReason.CHANNEL_FAILED) {
+      showStatus(
+        "Reply setup couldn't be completed, so a backup reply window was opened with the message content — " +
+        "formatting may have been shortened to fit Outlook's size limit. You can close the other blank reply " +
+        'window that also opened.',
+        'warning'
+      );
+    } else if (
+      handoffFallbackReason === HandoffFallbackReason.NO_SCOPING_ID ||
+      handoffFallbackReason === HandoffFallbackReason.DISPLAY_REPLY_FAILED
+    ) {
+      showStatus(
+        "Reply setup couldn't be completed, so this reply window was opened with the message content — " +
+        "formatting may have been shortened to fit Outlook's size limit.",
         'warning'
       );
     } else {
@@ -1398,7 +1463,7 @@ function openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, isH
  */
 export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients, subject, htmlBody) {
   const item = Office.context.mailbox.item;
-  const fallBack = () => openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, true);
+  const fallBack = (reason) => openReplyComposeForm(toRecipients, ccRecipients, subject, htmlBody, reason);
 
   // Prefer conversationId, but fall back to internetMessageId (available
   // since Mailbox 1.1, broader than conversationId) when it's missing --
@@ -1414,7 +1479,7 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
     // skip straight to the existing path, rather than opening a native
     // reply we can't safely hand plaintext to.
     console.error('Native reply: no conversationId or internetMessageId available, skipping handoff');
-    fallBack();
+    fallBack(HandoffFallbackReason.NO_SCOPING_ID);
     return;
   }
 
@@ -1432,16 +1497,24 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
     else item.displayReplyForm();
   } catch (e) {
     console.error('Native reply: displayReplyForm/displayReplyAllForm failed', e);
-    fallBack();
+    fallBack(HandoffFallbackReason.DISPLAY_REPLY_FAILED);
     return;
   }
+
+  // The native reply window is now open, and stays open for up to
+  // REPLY_HANDOFF_TIMEOUT_MS while this handoff retries -- see #17. Guard
+  // this window against a second concurrent handoff from the same pane.
+  _nativeReplyHandoffInFlight = true;
+  setReplyButtonsDisabled(true);
 
   let channel;
   try {
     channel = new BroadcastChannel(getReplyHandoffChannelName(scopingId));
   } catch (e) {
     console.error('Native reply: BroadcastChannel construction failed', e);
-    fallBack();
+    _nativeReplyHandoffInFlight = false;
+    setReplyButtonsDisabled(false);
+    fallBack(HandoffFallbackReason.CHANNEL_FAILED);
     return;
   }
 
@@ -1456,7 +1529,9 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
     clearInterval(broadcastTimer);
     clearTimeout(giveUpTimer);
     channel.close();
-    if (useFallback) fallBack();
+    _nativeReplyHandoffInFlight = false;
+    setReplyButtonsDisabled(false);
+    if (useFallback) fallBack(HandoffFallbackReason.TIMEOUT);
     else showStatusReplyOpened();
   };
 
