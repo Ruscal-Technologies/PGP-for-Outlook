@@ -1493,8 +1493,13 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
   const decryptedIsHtml = _decryptedIsHtml;
 
   try {
-    if (replyAll) item.displayReplyAllForm();
-    else item.displayReplyForm();
+    // formData is a required parameter for both APIs (not optional despite
+    // being commonly called with no visible effect) -- passing '' supplies
+    // no custom text, which Outlook prepends above its own native quote, so
+    // this preserves "let Outlook build the native reply" untouched. Calling
+    // these with zero arguments throws synchronously on every invocation.
+    if (replyAll) item.displayReplyAllForm('');
+    else item.displayReplyForm('');
   } catch (e) {
     console.error('Native reply: displayReplyForm/displayReplyAllForm failed', e);
     fallBack(HandoffFallbackReason.DISPLAY_REPLY_FAILED);
@@ -1755,9 +1760,8 @@ Office.onReady(async () => {
 
   // Wire reply buttons regardless of key state — the user may want to reply
   // encrypted even if they have no local key pair yet.
-  // Primary button: Reply All (quotes decrypted body); secondary: Reply to sender only.
-  el('btn-reply-encrypted').addEventListener('click', () => handleReplyEncrypted(true));
-  el('btn-reply-all-encrypted').addEventListener('click', () => handleReplyEncrypted(false));
+  el('btn-reply-encrypted').addEventListener('click', () => handleReplyEncrypted(false));
+  el('btn-reply-all-encrypted').addEventListener('click', () => handleReplyEncrypted(true));
 
   // Mobile inline compose buttons.
   el('btn-mobile-encrypt-send').addEventListener('click', handleMobileEncryptReply);
