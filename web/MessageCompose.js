@@ -606,6 +606,49 @@ async function handleEncrypt() {
   }
 }
 
+async function handleDecrypt() {
+  clearStatus();
+  const btn = el('btn-decrypt');
+  const spinner = el('decrypt-spinner');
+  btn.disabled = true;
+  spinner.classList.remove('pgp-hidden');
+
+  try {
+    const bodyText = await getBodyAsync(Office.CoercionType.Text);
+    if (detectPgpContent(bodyText) !== 'encrypted') {
+      showStatus('This message does not appear to be PGP-encrypted.', 'error');
+      return;
+    }
+
+    let privateKey = getSessionKey();
+    if (!privateKey) {
+      const passphrase = await promptPassphrase('Enter your passphrase to decrypt this message.');
+      privateKey = await unlockPrivateKey(getPrivateKey(), passphrase);
+      const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
+      const keyInfo = await getKeyInfo(getPublicKey());
+      cacheSessionKey(privateKey, userEmail, keyInfo.shortId);
+      updateSessionStatus();
+    }
+
+    showStatus('Decrypting message body…', 'info');
+    const { data: originalHtml } = await decryptMessage(bodyText, privateKey);
+    await setBodyHtmlAsync(originalHtml);
+
+    showStatus('✓ Message decrypted.', 'success');
+  } catch (e) {
+    if (e.message === 'Cancelled by user.') {
+      showStatus('Decryption cancelled.', 'info');
+    } else {
+      showStatus(`Decryption failed: ${e.message}`, 'error');
+      console.error(e);
+    }
+  } finally {
+    spinner.classList.add('pgp-hidden');
+    await refreshComposeButtons();
+    el('btn-decrypt').disabled = false;
+  }
+}
+
 /**
  * Warn the user that the message contains inline attachments which are
  * incompatible with PGP encryption, then let them choose what to do.

@@ -58,10 +58,17 @@ function installStubs({ bodyText = '', attachments = [] } = {}) {
   const okBtn = { addEventListener: (_e, cb) => { okBtn._cb = cb; }, removeEventListener: vi.fn() };
   const cancelBtn = { addEventListener: (_e, cb) => { cancelBtn._cb = cb; }, removeEventListener: vi.fn() };
 
+  // updateSessionStatus() (invoked by handleDecrypt() after caching a newly
+  // unlocked key, same as handleEncrypt()) reads/writes these two elements.
+  const sessionStatusBar = { classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) } };
+  const sessionStatusText = { textContent: '' };
+
   const elements = {
     'btn-encrypt': encryptBtn,
     'btn-decrypt': decryptBtn,
     'status-bar': statusEl,
+    'session-status': sessionStatusBar,
+    'session-status-text': sessionStatusText,
     'attachment-list': attachmentListEl,
     'attachments-empty': attachmentsEmptyEl,
     'attachments-loading': attachmentsLoadingEl,
@@ -159,5 +166,80 @@ describe('promptPassphrase', () => {
     await resultPromise;
 
     expect(msgEl.textContent).toBe('Enter your passphrase to decrypt this message.');
+  });
+});
+
+describe('handleDecrypt — body restore', () => {
+  beforeEach(() => {
+    clearSessionKey();
+  });
+
+  it('restores the original HTML body and switches buttons back to Encrypt', async () => {
+    const { decryptBtn, setAsync } = installStubs({
+      bodyText: '-----BEGIN PGP MESSAGE-----\narmored\n-----END PGP MESSAGE-----',
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.unlockPrivateKey.mockResolvedValue({ id: 'unlocked-key' });
+    pgpCore.decryptMessage.mockResolvedValue({ data: '<p>original body</p>', signatureResult: { valid: null } });
+
+    // Simulate an already-cached session key so no passphrase prompt is needed.
+    cacheSessionKey({ id: 'unlocked-key' }, 'me@example.com', 'ABCD1234');
+
+    const { handleDecrypt } = await import('../web/MessageCompose.js');
+    await handleDecrypt();
+
+    expect(pgpCore.decryptMessage).toHaveBeenCalledWith(
+      expect.stringContaining('-----BEGIN PGP MESSAGE-----'),
+      { id: 'unlocked-key' },
+    );
+    expect(setAsync).toHaveBeenCalledWith(
+      '<p>original body</p>',
+      { coercionType: 'html' },
+      expect.any(Function),
+    );
+  });
+
+  it('shows an error status and does not touch the body when the body is not encrypted', async () => {
+    const { statusEl, setAsync } = installStubs({ bodyText: 'plain draft, nothing encrypted' });
+
+    const { handleDecrypt } = await import('../web/MessageCompose.js');
+    await handleDecrypt();
+
+    expect(setAsync).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toMatch(/not.*encrypted|no.*encrypted/i);
+  });
+
+  it('prompts for the passphrase, unlocks, and caches the key when no session key is cached', async () => {
+    const { setAsync, passphraseInput, passphraseMsg, okBtn } = installStubs({
+      bodyText: '-----BEGIN PGP MESSAGE-----\narmored\n-----END PGP MESSAGE-----',
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.unlockPrivateKey.mockResolvedValue({ id: 'unlocked-key' });
+    pgpCore.decryptMessage.mockResolvedValue({ data: '<p>original body</p>', signatureResult: { valid: null } });
+
+    // No cacheSessionKey() call this time — getSessionKey() must return null,
+    // forcing handleDecrypt() through the promptPassphrase() branch.
+    const { handleDecrypt } = await import('../web/MessageCompose.js');
+    const decryptPromise = handleDecrypt();
+
+    // Let the microtask queue advance until promptPassphrase() has populated
+    // the modal — the exact number of intervening awaits inside
+    // handleDecrypt() before that point is an implementation detail, so poll
+    // rather than hardcoding a tick count.
+    for (let i = 0; i < 20 && !passphraseMsg.textContent; i++) {
+      await Promise.resolve();
+    }
+    expect(passphraseMsg.textContent).toBe('Enter your passphrase to decrypt this message.');
+    passphraseInput.value = 'hunter2';
+    okBtn._cb();
+
+    await decryptPromise;
+
+    expect(pgpCore.unlockPrivateKey).toHaveBeenCalledWith('armored-priv-key', 'hunter2');
+    expect(setAsync).toHaveBeenCalledWith(
+      '<p>original body</p>',
+      { coercionType: 'html' },
+      expect.any(Function),
+    );
   });
 });
