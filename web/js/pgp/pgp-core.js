@@ -700,9 +700,15 @@ export function base64ToUint8Array(base64) {
  * Office.js addFileAttachmentFromBase64Async().
  */
 export function uint8ArrayToBase64(bytes) {
+  // Byte-at-a-time string concatenation is fine for small payloads (e.g. a
+  // signature) but becomes slow for large ones (e.g. re-attaching a decrypted
+  // multi-MB file) -- both from the O(n) intermediate string reallocations
+  // and from String.fromCharCode.apply's own argument-count limits if called
+  // on the whole array at once. Chunking avoids both.
+  const CHUNK_SIZE = 0x8000; // 32K bytes per chunk -- comfortably under any engine's apply() arg limit
   let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK_SIZE));
   }
   return btoa(binary);
 }

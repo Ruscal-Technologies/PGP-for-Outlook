@@ -390,6 +390,35 @@ describe('handleDecrypt — attachment reversal', () => {
     expect(statusEl.textContent).toContain('bad.txt.pgp');
     expect(statusEl.textContent).toMatch(/could not/i);
   });
+
+  it('never removes the .pgp original when re-adding the decrypted file fails, so the attachment is not lost', async () => {
+    const attachments = [{ id: 'a1', name: 'report.pdf.pgp', isInline: false }];
+    const { statusEl } = installStubs({
+      bodyText: '-----BEGIN PGP MESSAGE-----\narmored\n-----END PGP MESSAGE-----',
+      attachments,
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.decryptMessage.mockResolvedValue({ data: '<p>body</p>', signatureResult: { valid: null } });
+    pgpCore.decryptAttachment.mockResolvedValue({ data: new Uint8Array([1, 2, 3]), filename: 'report.pdf' });
+    cacheSessionKey({ id: 'k' }, 'me@example.com', 'ABCD1234');
+
+    const item = global.Office.context.mailbox.item;
+    item.getAttachmentContentAsync = vi.fn((id, cb) => cb({ status: 'succeeded', value: { format: 'base64', content: btoa('armored-attachment-text') } }));
+    item.removeAttachmentAsync = vi.fn((id, cb) => cb({ status: 'succeeded' }));
+    // Simulate the re-add itself failing (quota, size limit, transient Office error).
+    item.addFileAttachmentFromBase64Async = vi.fn((base64, name, opts, cb) => cb({ status: 'failed', error: { message: 'attachment too large' } }));
+
+    const { handleDecrypt } = await import('../web/MessageCompose.js');
+    await handleDecrypt();
+
+    // The decrypted file is added BEFORE the .pgp original is removed, so a
+    // failed add must leave the original attachment in place -- never
+    // deleted with nothing to replace it.
+    expect(item.addFileAttachmentFromBase64Async).toHaveBeenCalledTimes(1);
+    expect(item.removeAttachmentAsync).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toContain('report.pdf.pgp');
+    expect(statusEl.textContent).toMatch(/could not/i);
+  });
 });
 
 describe('handleEncrypt — button visibility', () => {

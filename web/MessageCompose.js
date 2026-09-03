@@ -657,8 +657,14 @@ async function handleDecrypt() {
           const { data: decryptedBytes, filename } = await decryptAttachment(armoredMessage, privateKey);
           const recoveredName = filename || stripPgpExtension(att.name);
 
-          await removeAttachmentAsync(item, att.id);
+          // Add the decrypted file BEFORE removing the .pgp original: if
+          // addAttachmentFromBase64Async then throws (quota, size limit,
+          // transient Office error), the original .pgp is still attached and
+          // this attachment is simply reported as failed, matching the
+          // documented "left untouched on failure" behavior. Removing first
+          // would instead delete the only copy before the add is confirmed.
           await addAttachmentFromBase64Async(item, uint8ArrayToBase64(decryptedBytes), recoveredName);
+          await removeAttachmentAsync(item, att.id);
         } catch (e) {
           console.error(`Decrypt: failed to revert attachment "${att.name}"`, e);
           failedAttachments.push(att.name);
@@ -1142,7 +1148,11 @@ Office.onReady(async () => {
     loadCompanyKeys(),
   ]);
   loadAttachments();
-  await refreshComposeButtons();
+  try {
+    await refreshComposeButtons();
+  } catch (e) {
+    console.error('refreshComposeButtons failed', e);
+  }
 
   // Apply the user's stored sign-by-default preference.
   // The user can flip the toggle for any individual message.
