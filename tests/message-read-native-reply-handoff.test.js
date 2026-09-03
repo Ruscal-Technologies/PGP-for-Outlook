@@ -137,7 +137,7 @@ describe('openNativeReplyWithHandoff — fallback warning accuracy (issue #16)',
     ({ openNativeReplyWithHandoff } = await import('../web/MessageRead.js'));
 
     openNativeReplyWithHandoff(false, ['a@example.com'], [], 'Re: hi', '<p>quoted</p>');
-    await vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(25000); // past REPLY_HANDOFF_TIMEOUT_MS (20s, #22)
     vi.useRealTimers();
 
     expect(statusEl.textContent).toContain("didn't finish in time");
@@ -178,7 +178,7 @@ describe('openNativeReplyWithHandoff — reply buttons disabled while in flight 
     openNativeReplyWithHandoff(false, ['a@example.com'], [], 'Re: hi', '<p>quoted</p>');
     expect(replyBtn.disabled).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(25000); // past REPLY_HANDOFF_TIMEOUT_MS (20s, #22)
     vi.useRealTimers();
 
     expect(replyBtn.disabled).toBe(false);

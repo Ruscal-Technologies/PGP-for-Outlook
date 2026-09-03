@@ -16,10 +16,11 @@
 import { formatDecryptedContentAsHtml } from './quoted-content.js';
 import { getReplyHandoffChannelName, HANDOFF_PENDING_MARKER } from './reply-handoff-channel.js';
 
-// Matches (with margin) MessageRead.js's REPLY_HANDOFF_TIMEOUT_MS, so a
-// reply window that's genuinely waiting on a handoff isn't cut off before
-// the sender itself gives up and falls back.
-const REPLY_HANDOFF_LISTEN_TIMEOUT_MS = 12000;
+// Matches (with margin) MessageRead.js's REPLY_HANDOFF_TIMEOUT_MS (20s, #22),
+// so a reply window that's genuinely waiting on a handoff isn't cut off
+// before the sender itself gives up and falls back. Keeps the original 20%
+// margin (12s/10s) now scaled up (24s/20s).
+const REPLY_HANDOFF_LISTEN_TIMEOUT_MS = 24000;
 
 function getComposeTypeAsync() {
   return new Promise((resolve, reject) => {

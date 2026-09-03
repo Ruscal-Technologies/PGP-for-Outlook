@@ -1272,7 +1272,11 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
 
 // How long to keep re-broadcasting the handoff before giving up and falling
 // back to the original displayNewMessageForm + buildQuotedReplyHtml path.
-const REPLY_HANDOFF_TIMEOUT_MS = 10000;
+// Doubled from the original 10s (#22) for extra breathing room on a
+// resource-constrained system/connection between the native reply opening
+// and its listener actually arming (classic Windows: event fires -> user
+// clicks the notification -> ReplyHandoffPane.js loads -> listener arms).
+const REPLY_HANDOFF_TIMEOUT_MS = 20000;
 // How often to re-broadcast while waiting for MessageCompose.js's ack — a
 // compose window that takes a couple of seconds to load still catches one of
 // these, since BroadcastChannel drops messages posted before a listener
