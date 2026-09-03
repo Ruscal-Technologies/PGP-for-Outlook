@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Insert Decrypted Reply</title>
+
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="css/pgp-addon.css" />
+</head>
+<body>
+<!-- Dedicated minimal pane for #22's classic-Windows reply-handoff path: opened
+     automatically (via an InsightMessage notification's ShowTaskPane action,
+     see Functions/ReplyHandoffRuntime.classic.js) instead of the full
+     Encrypt/Decrypt pane, so the user isn't shown unrelated recipient/sign
+     UI for what should be a one-click, self-closing action. See
+     ReplyHandoffPane.js for what it actually does. -->
+<div class="pgp-pane" id="app" style="padding:16px;">
+  <div id="status-bar" class="pgp-alert pgp-alert--info">Inserting decrypted reply&hellip;</div>
+</div>
+<script type="module" src="ReplyHandoffPane.js"></script>
+</body>
+</html>

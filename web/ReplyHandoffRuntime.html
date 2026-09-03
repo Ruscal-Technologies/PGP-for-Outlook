@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <title></title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+<!-- NOTE: The body is empty on purpose. This is the event-based-activation
+     runtime for OnNewMessageCompose (see manifest.xml's Runtimes/LaunchEvent
+     elements and #22) -- it runs in the background with no visible UI,
+     on Outlook on the web, new Outlook on Windows, and new Mac UI. Classic
+     Outlook on Windows instead runs the plain-JS Override file declared
+     alongside this one in the manifest. -->
+<script type="module" src="ReplyHandoffRuntime.js"></script>
+</body>
+</html>

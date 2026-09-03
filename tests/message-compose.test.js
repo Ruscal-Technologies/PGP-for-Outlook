@@ -344,7 +344,7 @@ describe('reply handoff (BroadcastChannel)', () => {
   });
 
   it('shows the failure warning only once, not on every retry, when the splice keeps failing identically', async () => {
-    // Regression: MessageRead.js re-broadcasts every ~400ms for up to ~10s,
+    // Regression: MessageRead.js re-broadcasts every ~400ms for up to ~20s,
     // and each retry independently re-runs applyReplyHandoff (handoffInFlight
     // only blocks *overlapping* attempts, not sequential ones) -- a splice
     // that fails the same way every time must not re-flash the same warning

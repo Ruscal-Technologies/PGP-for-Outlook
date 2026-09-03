@@ -60,7 +60,7 @@ describe('openNativeReplyWithHandoff — missing conversationId', () => {
     const { displayReplyForm, displayReplyAllForm } =
       installStubs({ conversationId: undefined, internetMessageId });
     ({ openNativeReplyWithHandoff } = await import('../web/MessageRead.js'));
-    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const { getReplyHandoffChannelName, HANDOFF_PENDING_MARKER } = await import('../web/js/pgp/reply-handoff-channel.js');
 
     openNativeReplyWithHandoff(true, ['a@example.com'], [], 'Re: hi', '<p>quoted</p>');
 
@@ -71,7 +71,12 @@ describe('openNativeReplyWithHandoff — missing conversationId', () => {
     expect(displayReplyForm).not.toHaveBeenCalled();
     // formData is a required parameter of both APIs (issue #20) -- calling
     // with zero arguments throws synchronously on every real invocation.
-    expect(displayReplyAllForm).toHaveBeenCalledWith('');
+    // HANDOFF_PENDING_MARKER (not '') is passed as the ReplyFormData
+    // object's htmlBody -- confirmed live that the bare-string form doesn't
+    // actually insert visible text on classic Outlook Desktop -- so
+    // Functions/ReplyHandoffRuntime.classic.js can gate its notification on
+    // this specific reply having actually been opened for a handoff (#22).
+    expect(displayReplyAllForm).toHaveBeenCalledWith({ htmlBody: HANDOFF_PENDING_MARKER });
 
     // Confirm it's actually broadcasting on the internetMessageId-derived
     // channel (not the shared base channel), and ack it so the retry
@@ -132,7 +137,7 @@ describe('openNativeReplyWithHandoff — fallback warning accuracy (issue #16)',
     ({ openNativeReplyWithHandoff } = await import('../web/MessageRead.js'));
 
     openNativeReplyWithHandoff(false, ['a@example.com'], [], 'Re: hi', '<p>quoted</p>');
-    await vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(25000); // past REPLY_HANDOFF_TIMEOUT_MS (20s, #22)
     vi.useRealTimers();
 
     expect(statusEl.textContent).toContain("didn't finish in time");
@@ -173,7 +178,7 @@ describe('openNativeReplyWithHandoff — reply buttons disabled while in flight 
     openNativeReplyWithHandoff(false, ['a@example.com'], [], 'Re: hi', '<p>quoted</p>');
     expect(replyBtn.disabled).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(25000); // past REPLY_HANDOFF_TIMEOUT_MS (20s, #22)
     vi.useRealTimers();
 
     expect(replyBtn.disabled).toBe(false);

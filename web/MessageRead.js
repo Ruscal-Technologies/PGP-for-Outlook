@@ -25,7 +25,7 @@ import {
   getSessionEmail, getSessionShortId, onSessionCleared,
 } from './js/pgp/session-cache.js';
 import { formatDecryptedContentAsHtml, formatDecryptedContentAsPlainTextHtml } from './js/pgp/quoted-content.js';
-import { getReplyHandoffChannelName } from './js/pgp/reply-handoff-channel.js';
+import { getReplyHandoffChannelName, HANDOFF_PENDING_MARKER } from './js/pgp/reply-handoff-channel.js';
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
@@ -1272,7 +1272,11 @@ export function buildQuotedReplyHtml(decryptedText, decryptedIsHtml, senderName,
 
 // How long to keep re-broadcasting the handoff before giving up and falling
 // back to the original displayNewMessageForm + buildQuotedReplyHtml path.
-const REPLY_HANDOFF_TIMEOUT_MS = 10000;
+// Doubled from the original 10s (#22) for extra breathing room on a
+// resource-constrained system/connection between the native reply opening
+// and its listener actually arming (classic Windows: event fires -> user
+// clicks the notification -> ReplyHandoffPane.js loads -> listener arms).
+const REPLY_HANDOFF_TIMEOUT_MS = 20000;
 // How often to re-broadcast while waiting for MessageCompose.js's ack — a
 // compose window that takes a couple of seconds to load still catches one of
 // these, since BroadcastChannel drops messages posted before a listener
@@ -1494,12 +1498,25 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
 
   try {
     // formData is a required parameter for both APIs (not optional despite
-    // being commonly called with no visible effect) -- passing '' supplies
-    // no custom text, which Outlook prepends above its own native quote, so
-    // this preserves "let Outlook build the native reply" untouched. Calling
-    // these with zero arguments throws synchronously on every invocation.
-    if (replyAll) item.displayReplyAllForm('');
-    else item.displayReplyForm('');
+    // being commonly called with no visible effect) -- calling these with
+    // zero arguments throws synchronously on every invocation. Passing the
+    // bare HANDOFF_PENDING_MARKER string here was confirmed live to insert
+    // NO visible text on classic Outlook Desktop, despite Microsoft's own
+    // docs example showing exactly that usage -- no documented or
+    // community-confirmed explanation found (see #22). Using the
+    // ReplyFormData OBJECT form instead (`{ htmlBody }`), matching the
+    // field name openReplyComposeForm()/displayNewMessageForm already uses
+    // successfully elsewhere in this file, is the only structurally
+    // different invocation the docs describe, and is what actually works.
+    // Outlook still prepends this above its own native quote (so "let
+    // Outlook build the native reply" stays untouched) -- see
+    // HANDOFF_PENDING_MARKER's docblock for why: it's how
+    // Functions/ReplyHandoffRuntime.classic.js knows this specific reply is
+    // one this add-in opened for a handoff, and applyReplyHandoff() removes
+    // it as part of the same splice that replaces the PGP armor.
+    const formData = { htmlBody: HANDOFF_PENDING_MARKER };
+    if (replyAll) item.displayReplyAllForm(formData);
+    else item.displayReplyForm(formData);
   } catch (e) {
     console.error('Native reply: displayReplyForm/displayReplyAllForm failed', e);
     fallBack(HandoffFallbackReason.DISPLAY_REPLY_FAILED);
