@@ -373,3 +373,10 @@ manifest/*.zip
 
 # Git worktrees
 .worktrees/
+
+# Point-in-time planning artifacts (design specs, implementation plans) from
+# the superpowers workflow -- these are working documents for the session
+# that produced them, not living documentation. They're expected to diverge
+# from the final implementation as it evolves through review, so tracking
+# them invites exactly that drift to be flagged as a documentation bug.
+docs/superpowers/
