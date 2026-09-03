@@ -25,8 +25,13 @@
  *          When the recipient decrypts, they recover the original HTML exactly.
  *       d. For each non-inline attachment: reads, encrypts to a .pgp file,
  *          removes the original, and adds the encrypted version.
- *  6. After encryption the Encrypt button is disabled so the message cannot be
- *     double-encrypted.  The user then sends the message normally.
+ *  6. After encryption, refreshComposeButtons() detects the PGP-armored body
+ *     and hides the Encrypt button in favor of Decrypt (the actual double-encrypt
+ *     guard is the detectPgpContent(bodyHtml) === 'encrypted' check inside
+ *     handleEncrypt() itself).  The user then sends the message normally.
+ *  7. Clicking "Decrypt" (shown whenever the body is currently PGP-armored)
+ *     restores the original body and best-effort reverts any .pgp attachments
+ *     back to their originals.
  *
  * Requires: Mailbox 1.5 minimum (ribbon buttons, body encrypt/decrypt).
  * Attachment encryption requires Mailbox 1.8 and is gated at runtime via _has18.
@@ -54,7 +59,7 @@ import {
   armReplyHandoffListener, stripPgpArmorBlock, pickSpliceMarker,
 } from './js/pgp/reply-handoff-runtime-core.js';
 
-export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleDecrypt, promptPassphrase as promptPassphraseForTest };
+export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleEncrypt, handleDecrypt, promptPassphrase as promptPassphraseForTest };
 
 // ── Session status ────────────────────────────────────────────────────────────
 
@@ -600,7 +605,11 @@ async function handleEncrypt() {
     }
   } finally {
     spinner.classList.add('pgp-hidden');
-    await refreshComposeButtons();
+    try {
+      await refreshComposeButtons();
+    } catch (e) {
+      console.error('refreshComposeButtons failed', e);
+    }
     btn.disabled = false;
   }
 }
@@ -673,7 +682,11 @@ async function handleDecrypt() {
     }
   } finally {
     spinner.classList.add('pgp-hidden');
-    await refreshComposeButtons();
+    try {
+      await refreshComposeButtons();
+    } catch (e) {
+      console.error('refreshComposeButtons failed', e);
+    }
     el('btn-decrypt').disabled = false;
   }
 }

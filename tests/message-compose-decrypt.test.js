@@ -27,10 +27,35 @@ vi.mock('../web/js/pgp/pgp-core.js', async (importOriginal) => {
     // mocked too or the passphrase-prompt path (Task 4's third test) would
     // throw trying to parse it.
     getKeyInfo: vi.fn(async () => ({ shortId: 'ABCD1234' })),
+    // readPublicKey/encryptMessage normally parse/produce real OpenPGP
+    // material — mocked so the handleEncrypt() button-visibility test below
+    // doesn't need real key objects.
+    readPublicKey: vi.fn(async () => ({ fake: 'own-public-key' })),
+    encryptMessage: vi.fn(),
   };
 });
 
-function installStubs({ bodyText = '', attachments = [] } = {}) {
+// handleEncrypt() calls resolveRecipients() (key-discovery.js) to resolve
+// To/Cc emails to keys — mocked so the button-visibility test can supply a
+// recipient with an already-resolved key without hitting WKD/VKS.
+vi.mock('../web/js/pgp/key-discovery.js', () => ({
+  resolveRecipients: vi.fn(async (emails) => emails.map((email) => (
+    { email, key: { fake: 'recipient-key' }, status: 'found', source: 'keyring', armoredKey: null }
+  ))),
+  KeyStatus: { FOUND: 'found', NOT_FOUND: 'not-found', ERROR: 'error' },
+}));
+
+// org-config.js is only consulted for the company-key panel — mocked to the
+// "disabled" state so handleEncrypt()'s company-key branch is a no-op.
+vi.mock('../web/js/pgp/org-config.js', () => ({
+  loadOrgConfig: vi.fn(async () => ({})),
+  isCompanyKeyEnabled: vi.fn(() => false),
+  isCompanyKeyRequired: vi.fn(() => false),
+  getCompanyKeyEmails: vi.fn(() => []),
+  fetchCompanyKeys: vi.fn(async () => []),
+}));
+
+function installStubs({ bodyText = '', attachments = [], recipients = [] } = {}) {
   const encryptBtn = { classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) }, disabled: false, focus: vi.fn() };
   const decryptBtn = { classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) }, disabled: false, focus: vi.fn() };
   const statusEl = { className: '', textContent: '', classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) } };
@@ -63,6 +88,18 @@ function installStubs({ bodyText = '', attachments = [] } = {}) {
   const sessionStatusBar = { classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) } };
   const sessionStatusText = { textContent: '' };
 
+  // Elements handleEncrypt()'s recipient-loading/company-key/sign-toggle path
+  // touches — stubbed even in decrypt-only tests since installStubs() is
+  // shared, following the same "stub everything handleX always calls"
+  // pattern already used above for attachments.
+  const recipientListEl = { innerHTML: '', classList: { add: vi.fn(), remove: vi.fn() }, appendChild: vi.fn() };
+  const recipientsLoadingEl = { classList: { add: vi.fn(), remove: vi.fn() } };
+  const recipientsEmptyEl = { classList: { add: vi.fn(), remove: vi.fn() } };
+  const signToggle = { checked: false };
+  const companyKeyToggle = { checked: false };
+  const companyKeyDisabledEl = { classList: { add: vi.fn(), remove: vi.fn() } };
+  const companyKeyPanelEl = { classList: { add: vi.fn(), remove: vi.fn() } };
+
   const elements = {
     'btn-encrypt': encryptBtn,
     'btn-decrypt': decryptBtn,
@@ -78,18 +115,34 @@ function installStubs({ bodyText = '', attachments = [] } = {}) {
     'passphrase-modal-msg': passphraseMsg,
     'btn-passphrase-ok': okBtn,
     'btn-passphrase-cancel': cancelBtn,
+    'recipient-list': recipientListEl,
+    'recipients-loading': recipientsLoadingEl,
+    'recipients-empty': recipientsEmptyEl,
+    'sign-toggle': signToggle,
+    'company-key-toggle': companyKeyToggle,
+    'company-key-disabled': companyKeyDisabledEl,
+    'company-key-panel': companyKeyPanelEl,
     ...spinnerEls,
   };
   global.document = {
     getElementById: (id) => elements[id] || null,
     // Only used by loadAttachments() to render <li> rows for non-empty
     // attachment lists — a bare object is enough since nothing reads it back.
-    createElement: () => ({ className: '', innerHTML: '' }),
+    createElement: () => ({ className: '', innerHTML: '', dataset: {} }),
   };
 
-  const getAsync = vi.fn((_coercionType, cb) => cb({ status: 'succeeded', value: bodyText }));
-  const setAsync = vi.fn((_html, _opts, cb) => cb({ status: 'succeeded' }));
+  // Stateful body: setAsync updates what a later getAsync returns, so
+  // refreshComposeButtons()'s post-action re-read reflects an Encrypt/Decrypt
+  // that just ran, the same as it would against a real Outlook body.
+  let currentBody = bodyText;
+  const getAsync = vi.fn((_coercionType, cb) => cb({ status: 'succeeded', value: currentBody }));
+  const setAsync = vi.fn((html, _opts, cb) => { currentBody = html; cb({ status: 'succeeded' }); });
   const getAttachmentsAsync = vi.fn((_opts, cb) => cb({ status: 'succeeded', value: attachments }));
+  // loadRecipients() polls item.to/item.cc via getRecipientsAsync() until two
+  // consecutive reads agree on the count — returning the same list every call
+  // satisfies that on the first poll.
+  const to = { getAsync: vi.fn((cb) => cb({ status: 'succeeded', value: recipients })) };
+  const cc = { getAsync: vi.fn((cb) => cb({ status: 'succeeded', value: [] })) };
 
   global.Office = {
     onReady: () => {},
@@ -98,7 +151,7 @@ function installStubs({ bodyText = '', attachments = [] } = {}) {
     context: {
       mailbox: {
         userProfile: { emailAddress: 'me@example.com' },
-        item: { body: { getAsync, setAsync }, getAttachmentsAsync },
+        item: { body: { getAsync, setAsync }, getAttachmentsAsync, to, cc },
       },
       requirements: { isSetSupported: () => true },
     },
@@ -106,7 +159,7 @@ function installStubs({ bodyText = '', attachments = [] } = {}) {
 
   return {
     encryptBtn, decryptBtn, statusEl, getAsync, setAsync, getAttachmentsAsync,
-    passphraseInput, passphraseMsg, okBtn, cancelBtn,
+    passphraseInput, passphraseMsg, okBtn, cancelBtn, signToggle,
   };
 }
 
@@ -336,5 +389,28 @@ describe('handleDecrypt — attachment reversal', () => {
     expect(item.removeAttachmentAsync).toHaveBeenCalledWith('a1', expect.any(Function));
     expect(statusEl.textContent).toContain('bad.txt.pgp');
     expect(statusEl.textContent).toMatch(/could not/i);
+  });
+});
+
+describe('handleEncrypt — button visibility', () => {
+  beforeEach(() => {
+    clearSessionKey();
+  });
+
+  it('hides Encrypt and shows Decrypt after a successful encrypt', async () => {
+    const { encryptBtn, decryptBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { handleEncrypt } = await import('../web/MessageCompose.js');
+    await handleEncrypt();
+
+    expect(decryptBtn.classList.remove).toHaveBeenCalledWith('pgp-hidden');
+    expect(encryptBtn.classList.add).toHaveBeenCalledWith('pgp-hidden');
   });
 });
