@@ -243,3 +243,98 @@ describe('handleDecrypt — body restore', () => {
     );
   });
 });
+
+describe('handleDecrypt — attachment reversal', () => {
+  beforeEach(() => {
+    clearSessionKey();
+  });
+
+  it('reverts every .pgp attachment, leaves non-.pgp attachments alone, and reports success', async () => {
+    const attachments = [
+      { id: 'a1', name: 'report.pdf.pgp', isInline: false },
+      { id: 'a2', name: 'notes.txt', isInline: false },
+    ];
+    const { statusEl } = installStubs({
+      bodyText: '-----BEGIN PGP MESSAGE-----\narmored\n-----END PGP MESSAGE-----',
+      attachments,
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.decryptMessage.mockResolvedValue({ data: '<p>body</p>', signatureResult: { valid: null } });
+    pgpCore.decryptAttachment.mockResolvedValue({ data: new Uint8Array([1, 2, 3]), filename: 'report.pdf' });
+    cacheSessionKey({ id: 'k' }, 'me@example.com', 'ABCD1234');
+
+    const item = global.Office.context.mailbox.item;
+    item.getAttachmentContentAsync = vi.fn((id, cb) => cb({ status: 'succeeded', value: { format: 'base64', content: btoa('armored-attachment-text') } }));
+    item.removeAttachmentAsync = vi.fn((id, cb) => cb({ status: 'succeeded' }));
+    item.addFileAttachmentFromBase64Async = vi.fn((base64, name, opts, cb) => cb({ status: 'succeeded', value: name }));
+
+    const { handleDecrypt } = await import('../web/MessageCompose.js');
+    await handleDecrypt();
+
+    expect(pgpCore.decryptAttachment).toHaveBeenCalledTimes(1);
+    expect(item.removeAttachmentAsync).toHaveBeenCalledWith('a1', expect.any(Function));
+    expect(item.addFileAttachmentFromBase64Async).toHaveBeenCalledWith(
+      expect.any(String), 'report.pdf', { asyncContext: null }, expect.any(Function),
+    );
+    expect(statusEl.textContent).toContain('✓ Message decrypted.');
+  });
+
+  it('falls back to stripPgpExtension(name) when decryptAttachment returns no filename', async () => {
+    const attachments = [{ id: 'a1', name: 'archive.zip.pgp', isInline: false }];
+    installStubs({
+      bodyText: '-----BEGIN PGP MESSAGE-----\narmored\n-----END PGP MESSAGE-----',
+      attachments,
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.decryptMessage.mockResolvedValue({ data: '<p>body</p>', signatureResult: { valid: null } });
+    pgpCore.decryptAttachment.mockResolvedValue({ data: new Uint8Array([1]), filename: '' });
+    cacheSessionKey({ id: 'k' }, 'me@example.com', 'ABCD1234');
+
+    const item = global.Office.context.mailbox.item;
+    item.getAttachmentContentAsync = vi.fn((id, cb) => cb({ status: 'succeeded', value: { format: 'base64', content: btoa('armored-attachment-text') } }));
+    item.removeAttachmentAsync = vi.fn((id, cb) => cb({ status: 'succeeded' }));
+    item.addFileAttachmentFromBase64Async = vi.fn((base64, name, opts, cb) => cb({ status: 'succeeded', value: name }));
+
+    const { handleDecrypt } = await import('../web/MessageCompose.js');
+    await handleDecrypt();
+
+    expect(item.addFileAttachmentFromBase64Async).toHaveBeenCalledWith(
+      expect.any(String), 'archive.zip', { asyncContext: null }, expect.any(Function),
+    );
+  });
+
+  it('leaves a failed attachment untouched and reports a warning naming it, without blocking the others', async () => {
+    const attachments = [
+      { id: 'a1', name: 'good.txt.pgp', isInline: false },
+      { id: 'a2', name: 'bad.txt.pgp', isInline: false },
+    ];
+    const { statusEl } = installStubs({
+      bodyText: '-----BEGIN PGP MESSAGE-----\narmored\n-----END PGP MESSAGE-----',
+      attachments,
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.decryptMessage.mockResolvedValue({ data: '<p>body</p>', signatureResult: { valid: null } });
+    pgpCore.decryptAttachment.mockImplementation(async (armored) => {
+      if (armored.includes('bad')) throw new Error('corrupted armor');
+      return { data: new Uint8Array([9]), filename: 'good.txt' };
+    });
+    cacheSessionKey({ id: 'k' }, 'me@example.com', 'ABCD1234');
+
+    const item = global.Office.context.mailbox.item;
+    item.getAttachmentContentAsync = vi.fn((id, cb) => {
+      const text = id === 'a1' ? 'good-armored' : 'bad-armored';
+      cb({ status: 'succeeded', value: { format: 'base64', content: btoa(text) } });
+    });
+    item.removeAttachmentAsync = vi.fn((id, cb) => cb({ status: 'succeeded' }));
+    item.addFileAttachmentFromBase64Async = vi.fn((base64, name, opts, cb) => cb({ status: 'succeeded', value: name }));
+
+    const { handleDecrypt } = await import('../web/MessageCompose.js');
+    await handleDecrypt();
+
+    // Only the good attachment was removed/re-added.
+    expect(item.removeAttachmentAsync).toHaveBeenCalledTimes(1);
+    expect(item.removeAttachmentAsync).toHaveBeenCalledWith('a1', expect.any(Function));
+    expect(statusEl.textContent).toContain('bad.txt.pgp');
+    expect(statusEl.textContent).toMatch(/could not/i);
+  });
+});

@@ -634,7 +634,37 @@ async function handleDecrypt() {
     const { data: originalHtml } = await decryptMessage(bodyText, privateKey);
     await setBodyHtmlAsync(originalHtml);
 
-    showStatus('✓ Message decrypted.', 'success');
+    await loadAttachments();
+    const pgpAttachments = _attachments.filter(a => /\.pgp$/i.test(a.name));
+    const failedAttachments = [];
+
+    if (pgpAttachments.length > 0) {
+      showStatus('Decrypting attachments…', 'info');
+      const item = Office.context.mailbox.item;
+
+      for (const att of pgpAttachments) {
+        try {
+          const contentResult = await getAttachmentContentAsync(item, att.id);
+          const armoredMessage = atob(contentResult.content.replace(/[^\x00-\x7F]/g, ''));
+          const { data: decryptedBytes, filename } = await decryptAttachment(armoredMessage, privateKey);
+          const recoveredName = filename || stripPgpExtension(att.name);
+
+          await removeAttachmentAsync(item, att.id);
+          await addAttachmentFromBase64Async(item, uint8ArrayToBase64(decryptedBytes), recoveredName);
+        } catch (e) {
+          console.error(`Decrypt: failed to revert attachment "${att.name}"`, e);
+          failedAttachments.push(att.name);
+        }
+      }
+
+      await loadAttachments();
+    }
+
+    if (failedAttachments.length > 0) {
+      showStatus(`✓ Body decrypted. Could not revert: ${failedAttachments.join(', ')}.`, 'warning');
+    } else {
+      showStatus('✓ Message decrypted.', 'success');
+    }
   } catch (e) {
     if (e.message === 'Cancelled by user.') {
       showStatus('Decryption cancelled.', 'info');
