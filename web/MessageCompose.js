@@ -35,8 +35,9 @@
 import {
   unlockPrivateKey, readPublicKey, getKeyInfo,
   encryptMessage, encryptAttachment,
+  decryptMessage, decryptAttachment,
   hasWeakEncryptionKey,
-  base64ToUint8Array,
+  base64ToUint8Array, uint8ArrayToBase64, stripPgpExtension,
   detectPgpContent,
 } from './js/pgp/pgp-core.js';
 import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault } from './js/pgp/key-storage.js';
@@ -53,7 +54,7 @@ import {
   armReplyHandoffListener, stripPgpArmorBlock, pickSpliceMarker,
 } from './js/pgp/reply-handoff-runtime-core.js';
 
-export { stripPgpArmorBlock, pickSpliceMarker };
+export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleDecrypt };
 
 // ── Session status ────────────────────────────────────────────────────────────
 
@@ -376,6 +377,23 @@ function updateEncryptButton() {
   const wasDisabled = el('btn-encrypt').disabled;
   el('btn-encrypt').disabled = !ready;
   if (ready && wasDisabled) el('btn-encrypt').focus(); // only on disabled→enabled transition
+}
+
+/**
+ * Show Decrypt / hide Encrypt when the body is currently PGP-armored, and
+ * vice versa. Called on load and after every Encrypt/Decrypt action so the
+ * two buttons never both suggest an available action at once.
+ */
+async function refreshComposeButtons() {
+  const bodyText = await getBodyAsync(Office.CoercionType.Text);
+  const isEncrypted = detectPgpContent(bodyText) === 'encrypted';
+  if (isEncrypted) {
+    el('btn-decrypt').classList.remove('pgp-hidden');
+    el('btn-encrypt').classList.add('pgp-hidden');
+  } else {
+    el('btn-encrypt').classList.remove('pgp-hidden');
+    el('btn-decrypt').classList.add('pgp-hidden');
+  }
 }
 
 // ── Passphrase modal ──────────────────────────────────────────────────────────
