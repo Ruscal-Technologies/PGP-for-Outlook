@@ -57,7 +57,7 @@ The add-in has four entry points in `web/`:
 
 | File | Purpose | Office API requirement |
 |------|---------|----------------------|
-| `MessageCompose.html/.js` | Encrypt outgoing messages, manage recipient keys | Mailbox 1.5 min; attachment encryption gates on `_has18` (1.8) at runtime |
+| `MessageCompose.html/.js` | Encrypt/decrypt outgoing messages, manage recipient keys | Mailbox 1.5 min; attachment encryption gates on `_has18` (1.8) at runtime |
 | `MessageRead.html/.js` | Decrypt incoming messages, verify signatures | Mailbox 1.5 min; attachment decrypt gates on `_has18` (1.8); sender info gates on `_has17` (1.7) |
 | `KeyManagement.html/.js` | Key generation, import, export, contacts keyring, org settings, Ko-fi support button (dynamically injected; suppressed by `hideSupportButton` org config) | Mailbox 1.1 |
 | `Functions/FunctionFile.html/.js` | UI-less ribbon action host | Mailbox 1.1 |
@@ -150,6 +150,10 @@ Key config fields: `companyKeyEnabled`, `companyKeyRequired`, `companyKeyEmails[
 The add-in encrypts the **HTML body** of the message and replaces it with PGP armor. Subject lines, sender/recipient headers, and metadata are not encrypted (fundamental OpenPGP-over-email limitation). On decrypt, the original HTML is recovered and rendered in a sandboxed iframe.
 
 Attachments are encrypted individually to `filename.ext.pgp`. Inline (clipboard-pasted) images in the body cannot be read by the Office API on Outlook desktop; the add-in detects the broken `cid:` reference and warns the user. On Outlook Web it can convert them to regular attachments automatically. On decrypt, `MessageRead.js` offers both per-attachment "Decrypt & Download" buttons and a "Save All" button that decrypts and downloads every PGP attachment on the message sequentially, prompting for the passphrase only once.
+
+### Decrypting from Compose
+
+Encrypting to your own public key is always done unconditionally alongside recipient/company keys (so the sender can read their own sent mail) — this also means the sender's own private key is always sufficient to reverse an encrypt performed from this add-in's own compose pane, regardless of which recipients were chosen. A "Decrypt" button (`refreshComposeButtons()`/`handleDecrypt()` in `MessageCompose.js`) appears whenever the compose body is currently PGP-armored, letting the user restore the original body and revert any `.pgp` attachments back to their originals so recipients, body, or attachments can be edited before re-encrypting (#25). Attachment reversal is best-effort per file: a `.pgp` attachment that fails to decrypt (e.g. hand-corrupted armor) is left alone and named in a warning status, without blocking the body restore or any other attachment.
 
 ### Reply / Reply All quoting
 
