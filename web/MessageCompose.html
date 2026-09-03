@@ -103,12 +103,16 @@
   </section>
 
   <!-- ═══════════════════════════════════════════════════════
-       ENCRYPT BUTTON
+       ENCRYPT / DECRYPT BUTTON
   ══════════════════════════════════════════════════════════ -->
   <div>
     <button class="pgp-btn pgp-btn--primary pgp-btn--full" id="btn-encrypt" disabled>
       <span class="pgp-spinner pgp-hidden" id="encrypt-spinner"></span>
       Encrypt Message
+    </button>
+    <button class="pgp-btn pgp-btn--secondary pgp-btn--full pgp-hidden" id="btn-decrypt">
+      <span class="pgp-spinner pgp-hidden" id="decrypt-spinner"></span>
+      Decrypt Message
     </button>
     <p style="font-size:11px;color:#605e5c;margin:6px 0 0;text-align:center;">
       After encrypting, click <strong>Send</strong> in Outlook as normal.
@@ -171,7 +175,7 @@
   <div id="passphrase-modal" class="pgp-hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:1000;">
     <div style="background:#fff;border-radius:4px;padding:20px;width:280px;max-width:90vw;box-shadow:0 4px 20px rgba(0,0,0,0.2);">
       <div style="font-size:14px;font-weight:600;margin-bottom:12px;">Enter Passphrase</div>
-      <p style="font-size:13px;color:#605e5c;margin:0 0 10px;">
+      <p style="font-size:13px;color:#605e5c;margin:0 0 10px;" id="passphrase-modal-msg">
         Your private key passphrase is required to sign and encrypt this message.
       </p>
       <input type="password" id="passphrase-input" placeholder="Passphrase"

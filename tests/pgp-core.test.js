@@ -247,6 +247,18 @@ describe('base64ToUint8Array / uint8ArrayToBase64', () => {
     const roundTripped = base64ToUint8Array(base64);
     expect(Array.from(roundTripped)).toEqual(Array.from(original));
   });
+
+  it('round-trips a payload larger than the internal chunk size', () => {
+    // uint8ArrayToBase64 processes bytes in 32K chunks -- exercise a payload
+    // that spans multiple chunks (including a partial final chunk) to catch
+    // off-by-one errors at chunk boundaries.
+    const original = new Uint8Array(0x8000 * 3 + 137);
+    for (let i = 0; i < original.length; i++) original[i] = i % 256;
+
+    const base64 = uint8ArrayToBase64(original);
+    const roundTripped = base64ToUint8Array(base64);
+    expect(Array.from(roundTripped)).toEqual(Array.from(original));
+  });
 });
 
 describe('extractPublicKey', () => {

@@ -25,8 +25,13 @@
  *          When the recipient decrypts, they recover the original HTML exactly.
  *       d. For each non-inline attachment: reads, encrypts to a .pgp file,
  *          removes the original, and adds the encrypted version.
- *  6. After encryption the Encrypt button is disabled so the message cannot be
- *     double-encrypted.  The user then sends the message normally.
+ *  6. After encryption, refreshComposeButtons() detects the PGP-armored body
+ *     and hides the Encrypt button in favor of Decrypt (the actual double-encrypt
+ *     guard is the detectPgpContent(bodyHtml) === 'encrypted' check inside
+ *     handleEncrypt() itself).  The user then sends the message normally.
+ *  7. Clicking "Decrypt" (shown whenever the body is currently PGP-armored)
+ *     restores the original body and best-effort reverts any .pgp attachments
+ *     back to their originals.
  *
  * Requires: Mailbox 1.5 minimum (ribbon buttons, body encrypt/decrypt).
  * Attachment encryption requires Mailbox 1.8 and is gated at runtime via _has18.
@@ -35,8 +40,9 @@
 import {
   unlockPrivateKey, readPublicKey, getKeyInfo,
   encryptMessage, encryptAttachment,
+  decryptMessage, decryptAttachment,
   hasWeakEncryptionKey,
-  base64ToUint8Array,
+  base64ToUint8Array, uint8ArrayToBase64, stripPgpExtension,
   detectPgpContent,
 } from './js/pgp/pgp-core.js';
 import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault } from './js/pgp/key-storage.js';
@@ -53,7 +59,7 @@ import {
   armReplyHandoffListener, stripPgpArmorBlock, pickSpliceMarker,
 } from './js/pgp/reply-handoff-runtime-core.js';
 
-export { stripPgpArmorBlock, pickSpliceMarker };
+export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleEncrypt, handleDecrypt, promptPassphrase as promptPassphraseForTest };
 
 // ── Session status ────────────────────────────────────────────────────────────
 
@@ -378,13 +384,31 @@ function updateEncryptButton() {
   if (ready && wasDisabled) el('btn-encrypt').focus(); // only on disabled→enabled transition
 }
 
+/**
+ * Show Decrypt / hide Encrypt when the body is currently PGP-armored, and
+ * vice versa. Called on load and after every Encrypt/Decrypt action so the
+ * two buttons never both suggest an available action at once.
+ */
+async function refreshComposeButtons() {
+  const bodyText = await getBodyAsync(Office.CoercionType.Text);
+  const isEncrypted = detectPgpContent(bodyText) === 'encrypted';
+  if (isEncrypted) {
+    el('btn-decrypt').classList.remove('pgp-hidden');
+    el('btn-encrypt').classList.add('pgp-hidden');
+  } else {
+    el('btn-encrypt').classList.remove('pgp-hidden');
+    el('btn-decrypt').classList.add('pgp-hidden');
+  }
+}
+
 // ── Passphrase modal ──────────────────────────────────────────────────────────
 
-function promptPassphrase() {
+function promptPassphrase(message = 'Your private key passphrase is required to sign and encrypt this message.') {
   return new Promise((resolve, reject) => {
     const modal = el('passphrase-modal');
     const input = el('passphrase-input');
     const errEl = el('passphrase-error');
+    el('passphrase-modal-msg').textContent = message;
 
     input.value = '';
     errEl.classList.add('pgp-hidden');
@@ -580,10 +604,96 @@ async function handleEncrypt() {
       console.error(e);
     }
   } finally {
-    // Re-enable if there was a non-passphrase error
-    const encrypted = el('status-bar').classList.contains('pgp-alert--success');
-    btn.disabled = encrypted; // keep disabled after success so user can't re-encrypt
     spinner.classList.add('pgp-hidden');
+    try {
+      await refreshComposeButtons();
+    } catch (e) {
+      console.error('refreshComposeButtons failed', e);
+    }
+    btn.disabled = false;
+  }
+}
+
+async function handleDecrypt() {
+  clearStatus();
+  const btn = el('btn-decrypt');
+  const spinner = el('decrypt-spinner');
+  btn.disabled = true;
+  spinner.classList.remove('pgp-hidden');
+
+  try {
+    const bodyText = await getBodyAsync(Office.CoercionType.Text);
+    if (detectPgpContent(bodyText) !== 'encrypted') {
+      showStatus('This message does not appear to be PGP-encrypted.', 'error');
+      return;
+    }
+
+    let privateKey = getSessionKey();
+    if (!privateKey) {
+      const passphrase = await promptPassphrase('Enter your passphrase to decrypt this message.');
+      privateKey = await unlockPrivateKey(getPrivateKey(), passphrase);
+      const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
+      const keyInfo = await getKeyInfo(getPublicKey());
+      cacheSessionKey(privateKey, userEmail, keyInfo.shortId);
+      updateSessionStatus();
+    }
+
+    showStatus('Decrypting message body…', 'info');
+    const { data: originalHtml } = await decryptMessage(bodyText, privateKey);
+    await setBodyHtmlAsync(originalHtml);
+
+    await loadAttachments();
+    const pgpAttachments = _attachments.filter(a => /\.pgp$/i.test(a.name));
+    const failedAttachments = [];
+
+    if (pgpAttachments.length > 0) {
+      showStatus('Decrypting attachments…', 'info');
+      const item = Office.context.mailbox.item;
+
+      for (const att of pgpAttachments) {
+        try {
+          const contentResult = await getAttachmentContentAsync(item, att.id);
+          const armoredMessage = atob(contentResult.content.replace(/[^\x00-\x7F]/g, ''));
+          const { data: decryptedBytes, filename } = await decryptAttachment(armoredMessage, privateKey);
+          const recoveredName = filename || stripPgpExtension(att.name);
+
+          // Add the decrypted file BEFORE removing the .pgp original: if
+          // addAttachmentFromBase64Async then throws (quota, size limit,
+          // transient Office error), the original .pgp is still attached and
+          // this attachment is simply reported as failed, matching the
+          // documented "left untouched on failure" behavior. Removing first
+          // would instead delete the only copy before the add is confirmed.
+          await addAttachmentFromBase64Async(item, uint8ArrayToBase64(decryptedBytes), recoveredName);
+          await removeAttachmentAsync(item, att.id);
+        } catch (e) {
+          console.error(`Decrypt: failed to revert attachment "${att.name}"`, e);
+          failedAttachments.push(att.name);
+        }
+      }
+
+      await loadAttachments();
+    }
+
+    if (failedAttachments.length > 0) {
+      showStatus(`✓ Body decrypted. Could not revert: ${failedAttachments.join(', ')}.`, 'warning');
+    } else {
+      showStatus('✓ Message decrypted.', 'success');
+    }
+  } catch (e) {
+    if (e.message === 'Cancelled by user.') {
+      showStatus('Decryption cancelled.', 'info');
+    } else {
+      showStatus(`Decryption failed: ${e.message}`, 'error');
+      console.error(e);
+    }
+  } finally {
+    spinner.classList.add('pgp-hidden');
+    try {
+      await refreshComposeButtons();
+    } catch (e) {
+      console.error('refreshComposeButtons failed', e);
+    }
+    el('btn-decrypt').disabled = false;
   }
 }
 
@@ -1038,6 +1148,11 @@ Office.onReady(async () => {
     loadCompanyKeys(),
   ]);
   loadAttachments();
+  try {
+    await refreshComposeButtons();
+  } catch (e) {
+    console.error('refreshComposeButtons failed', e);
+  }
 
   // Apply the user's stored sign-by-default preference.
   // The user can flip the toggle for any individual message.
@@ -1059,6 +1174,7 @@ Office.onReady(async () => {
   });
 
   el('btn-encrypt').addEventListener('click', handleEncrypt);
+  el('btn-decrypt').addEventListener('click', handleDecrypt);
 
   el('btn-lock-session').addEventListener('click', () => {
     clearSessionKey(); // triggers onSessionCleared → updateSessionStatus
