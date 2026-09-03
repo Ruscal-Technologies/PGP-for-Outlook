@@ -1495,16 +1495,24 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
   try {
     // formData is a required parameter for both APIs (not optional despite
     // being commonly called with no visible effect) -- calling these with
-    // zero arguments throws synchronously on every invocation. Passing
-    // HANDOFF_PENDING_MARKER (rather than '') supplies visible custom text,
-    // which Outlook prepends above its own native quote (so "let Outlook
-    // build the native reply" is still untouched) -- see that constant's
-    // docblock for why: it's how Functions/ReplyHandoffRuntime.classic.js
-    // knows this specific reply is one this add-in opened for a handoff
-    // (#22), and applyReplyHandoff() removes it as part of the same splice
-    // that replaces the PGP armor.
-    if (replyAll) item.displayReplyAllForm(HANDOFF_PENDING_MARKER);
-    else item.displayReplyForm(HANDOFF_PENDING_MARKER);
+    // zero arguments throws synchronously on every invocation. Passing the
+    // bare HANDOFF_PENDING_MARKER string here was confirmed live to insert
+    // NO visible text on classic Outlook Desktop, despite Microsoft's own
+    // docs example showing exactly that usage -- no documented or
+    // community-confirmed explanation found (see #22). Using the
+    // ReplyFormData OBJECT form instead (`{ htmlBody }`), matching the
+    // field name openReplyComposeForm()/displayNewMessageForm already uses
+    // successfully elsewhere in this file, is the only structurally
+    // different invocation the docs describe, and is what actually works.
+    // Outlook still prepends this above its own native quote (so "let
+    // Outlook build the native reply" stays untouched) -- see
+    // HANDOFF_PENDING_MARKER's docblock for why: it's how
+    // Functions/ReplyHandoffRuntime.classic.js knows this specific reply is
+    // one this add-in opened for a handoff, and applyReplyHandoff() removes
+    // it as part of the same splice that replaces the PGP armor.
+    const formData = { htmlBody: HANDOFF_PENDING_MARKER };
+    if (replyAll) item.displayReplyAllForm(formData);
+    else item.displayReplyForm(formData);
   } catch (e) {
     console.error('Native reply: displayReplyForm/displayReplyAllForm failed', e);
     fallBack(HandoffFallbackReason.DISPLAY_REPLY_FAILED);

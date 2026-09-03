@@ -36,10 +36,19 @@ export function getReplyHandoffChannelName(conversationId) {
 }
 
 /**
- * Passed as the `formData` string to displayReplyForm()/displayReplyAllForm()
- * in MessageRead.js's openNativeReplyWithHandoff() (instead of an empty
- * string) so the resulting reply body carries a visible, literal marker
- * until the handoff splices the real decrypted content in over it.
+ * Passed as the `htmlBody` of the `ReplyFormData` object given to
+ * displayReplyForm()/displayReplyAllForm() in MessageRead.js's
+ * openNativeReplyWithHandoff() (instead of an empty string) so the
+ * resulting reply body carries a visible, literal marker until the handoff
+ * splices the real decrypted content in over it. Must be passed as
+ * `{ htmlBody: HANDOFF_PENDING_MARKER }`, not the bare string -- confirmed
+ * live (2026-09-03) that the bare-string `formData` overload does not
+ * insert visible text into the reply body on classic Outlook Desktop,
+ * despite Microsoft's own docs example showing exactly that usage; no
+ * documented or community-confirmed explanation was found for why (#22).
+ * The `ReplyFormData` object form, using the same `htmlBody` field name
+ * `displayNewMessageForm` already uses successfully elsewhere in
+ * MessageRead.js, is what actually works.
  *
  * Two things key off this text existing in the body:
  *  - Functions/ReplyHandoffRuntime.classic.js checks for it before posting

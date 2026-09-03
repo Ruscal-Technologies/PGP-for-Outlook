@@ -71,10 +71,12 @@ describe('openNativeReplyWithHandoff — missing conversationId', () => {
     expect(displayReplyForm).not.toHaveBeenCalled();
     // formData is a required parameter of both APIs (issue #20) -- calling
     // with zero arguments throws synchronously on every real invocation.
-    // HANDOFF_PENDING_MARKER (not '') is passed so
+    // HANDOFF_PENDING_MARKER (not '') is passed as the ReplyFormData
+    // object's htmlBody -- confirmed live that the bare-string form doesn't
+    // actually insert visible text on classic Outlook Desktop -- so
     // Functions/ReplyHandoffRuntime.classic.js can gate its notification on
     // this specific reply having actually been opened for a handoff (#22).
-    expect(displayReplyAllForm).toHaveBeenCalledWith(HANDOFF_PENDING_MARKER);
+    expect(displayReplyAllForm).toHaveBeenCalledWith({ htmlBody: HANDOFF_PENDING_MARKER });
 
     // Confirm it's actually broadcasting on the internetMessageId-derived
     // channel (not the shared base channel), and ack it so the retry
