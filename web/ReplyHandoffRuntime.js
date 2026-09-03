@@ -38,7 +38,16 @@ async function onNewMessageComposeHandler(event) {
         icon: 'icon16',
         message: 'ReplyHandoffRuntime (browser) fired: composeType=' + composeType,
         persistent: false,
-      }, resolve);
+      }, (result) => {
+        // Always resolve (never reject) so event.completed() still fires
+        // either way -- but log a failure rather than silently swallowing
+        // it, since this diagnostic notification is the only signal this
+        // step-1 stub produces.
+        if (result.status === Office.AsyncResultStatus.Failed) {
+          console.error('ReplyHandoffRuntime: notification post failed', result.error);
+        }
+        resolve();
+      });
     });
   } catch (e) {
     console.error('ReplyHandoffRuntime: handler failed', e);
