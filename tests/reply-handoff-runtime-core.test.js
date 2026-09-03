@@ -65,6 +65,40 @@ describe('armReplyHandoffListener — onSettled', () => {
     expect(result).toEqual({ success: true, message: 'Decrypted message inserted into this reply.' });
   });
 
+  it('still calls onSettled (rather than leaving the handoff stuck) when something else in the onmessage handler throws unexpectedly', async () => {
+    // Regression: applyReplyHandoff() catches its own errors, but nothing
+    // upstream of this test guarded against e.g. a caller-supplied onStatus
+    // throwing -- without a try/catch around the whole handler, that would
+    // leave handoffInFlight stuck true and onSettled never firing.
+    const conversationId = 'conv-settled-throws';
+    const { office } = makeOfficeStub({
+      bodyHtml: `<div>${ARMOR}</div>`,
+      composeType: 'reply',
+      conversationId,
+    });
+    global.Office = office;
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const settled = new Promise((resolve) => {
+      armReplyHandoffListener({
+        has110: true,
+        has114: false,
+        onStatus: () => { throw new Error('boom from onStatus'); },
+        onSettled: resolve,
+      });
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'tok-throw', text: 'decrypted', isHtml: false });
+
+    const result = await settled;
+    sender.close();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('boom from onStatus');
+  });
+
   it('strips the HANDOFF_PENDING_MARKER (prepended by MessageRead.js\'s displayReplyForm/displayReplyAllForm call) as part of a successful splice', async () => {
     const conversationId = 'conv-settled-marker';
     const { office, getSavedBody } = makeOfficeStub({

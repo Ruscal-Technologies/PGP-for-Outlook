@@ -28,11 +28,17 @@ async function onNewMessageComposeHandler(event) {
     // runtime at all (see ReplyHandoffRuntime.classic.js's comments), so
     // this is the one signal guaranteed visible on every platform while
     // confirming step 1 of #22's plan (does the event fire at all).
-    Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_step1', {
-      type: Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
-      icon: 'icon16',
-      message: 'ReplyHandoffRuntime (browser) fired: composeType=' + composeType,
-      persistent: false,
+    // Awaited (not fire-and-forget) so event.completed() below can't run
+    // before Outlook has actually posted it -- Outlook may tear this
+    // runtime down as soon as completed() is called, and this is a cold
+    // start with no later tick guaranteed.
+    await new Promise((resolve) => {
+      Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_step1', {
+        type: Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
+        icon: 'icon16',
+        message: 'ReplyHandoffRuntime (browser) fired: composeType=' + composeType,
+        persistent: false,
+      }, resolve);
     });
   } catch (e) {
     console.error('ReplyHandoffRuntime: handler failed', e);

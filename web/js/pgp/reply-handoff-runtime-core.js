@@ -56,9 +56,13 @@ function setBodyHtmlAsync(html) {
   });
 }
 
-// Internal splitting delimiter for stripPgpArmorBlock() — a Private Use Area
-// character sequence that can never appear in real email text, and survives
-// HTML (de)serialization unescaped (no &, <, >, or ").
+// Internal splitting delimiter for stripPgpArmorBlock() — a plain ASCII
+// sequence, not assumed unique on its own (the input is attacker-influenceable
+// PGP message content, so a literal collision is possible however unlikely).
+// pickSpliceMarker() below is what actually guarantees uniqueness before use:
+// it checks the raw input first and falls back to a suffixed variant if this
+// base value already appears there. Deliberately free of &, <, >, and " so it
+// survives HTML (de)serialization unescaped.
 const ARMOR_SPLICE_MARKER_BASE = '__PGP_ARMOR_SPLICE__';
 
 /**
@@ -305,26 +309,40 @@ export async function armReplyHandoffListener({ has110, has114, onStatus, onSett
     if (!data || data.type !== 'pgp-reply-handoff' || consumed || handoffInFlight) return;
     handoffInFlight = true;
 
-    const { success, message } = await applyReplyHandoff(data.text, data.isHtml);
-    console.log('Reply handoff: applyReplyHandoff result', { success, message });
-    // Only ack on confirmed success -- an ack that arrives despite a failed
-    // splice would make MessageRead.js treat this as done and never trigger
-    // its own fallback, leaving the user with a still-armored body and no
-    // backup window. Staying silent here lets that timeout-based fallback
-    // fire instead.
-    if (success) {
-      consumed = true;
-      clearTimeout(idleTimer);
-      channel.postMessage({ type: 'pgp-reply-handoff-ack', token: data.token });
-      channel.close();
-      if (onStatus) onStatus(message, 'success');
-      if (onSettled) onSettled({ success: true, message });
-      return;
+    // applyReplyHandoff() already catches its own errors and always resolves
+    // to {success, message} -- this try/catch guards against anything ELSE
+    // in this handler throwing (a caller-supplied onStatus/onSettled callback,
+    // or postMessage/close on a channel mid-teardown). Without it, a throw
+    // here would leave handoffInFlight stuck true (blocking every future
+    // message on this channel), never call onSettled, and become an
+    // unhandled rejection inside a BroadcastChannel event handler --
+    // silently swallowed by the runtime rather than surfaced anywhere.
+    try {
+      const { success, message } = await applyReplyHandoff(data.text, data.isHtml);
+      console.log('Reply handoff: applyReplyHandoff result', { success, message });
+      // Only ack on confirmed success -- an ack that arrives despite a failed
+      // splice would make MessageRead.js treat this as done and never trigger
+      // its own fallback, leaving the user with a still-armored body and no
+      // backup window. Staying silent here lets that timeout-based fallback
+      // fire instead.
+      if (success) {
+        consumed = true;
+        clearTimeout(idleTimer);
+        channel.postMessage({ type: 'pgp-reply-handoff-ack', token: data.token });
+        channel.close();
+        if (onStatus) onStatus(message, 'success');
+        if (onSettled) onSettled({ success: true, message });
+        return;
+      }
+      if (!hasShownFailureWarning) {
+        hasShownFailureWarning = true;
+        if (onStatus) onStatus(message, 'warning');
+      }
+      handoffInFlight = false;
+    } catch (e) {
+      console.error('Reply handoff: onmessage handler failed unexpectedly', e);
+      handoffInFlight = false;
+      if (onSettled) onSettled({ success: false, message: `Reply handoff failed unexpectedly: ${e.message}` });
     }
-    if (!hasShownFailureWarning) {
-      hasShownFailureWarning = true;
-      if (onStatus) onStatus(message, 'warning');
-    }
-    handoffInFlight = false;
   };
 }
