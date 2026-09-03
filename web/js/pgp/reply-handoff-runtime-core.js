@@ -300,8 +300,9 @@ export async function armReplyHandoffListener({ has110, has114, onStatus, onSett
   // Shown once, not on every retry: a splice that fails once (e.g. the
   // armor block sits in a DOM shape stripPgpArmorBlock() doesn't recognize)
   // fails identically on every re-broadcast, and MessageRead.js retries
-  // every ~400ms for up to ~10s -- re-showing the same warning that often
-  // would flicker the status bar instead of informing the user.
+  // every ~400ms for up to ~20s (REPLY_HANDOFF_TIMEOUT_MS, #22) --
+  // re-showing the same warning that often would flicker the status bar
+  // instead of informing the user.
   let hasShownFailureWarning = false;
 
   channel.onmessage = async (event) => {
