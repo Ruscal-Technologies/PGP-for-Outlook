@@ -599,10 +599,9 @@ async function handleEncrypt() {
       console.error(e);
     }
   } finally {
-    // Re-enable if there was a non-passphrase error
-    const encrypted = el('status-bar').classList.contains('pgp-alert--success');
-    btn.disabled = encrypted; // keep disabled after success so user can't re-encrypt
     spinner.classList.add('pgp-hidden');
+    await refreshComposeButtons();
+    btn.disabled = false;
   }
 }
 
@@ -1130,6 +1129,7 @@ Office.onReady(async () => {
     loadCompanyKeys(),
   ]);
   loadAttachments();
+  await refreshComposeButtons();
 
   // Apply the user's stored sign-by-default preference.
   // The user can flip the toggle for any individual message.
@@ -1151,6 +1151,7 @@ Office.onReady(async () => {
   });
 
   el('btn-encrypt').addEventListener('click', handleEncrypt);
+  el('btn-decrypt').addEventListener('click', handleDecrypt);
 
   el('btn-lock-session').addEventListener('click', () => {
     clearSessionKey(); // triggers onSessionCleared → updateSessionStatus
