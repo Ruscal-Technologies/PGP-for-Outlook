@@ -54,7 +54,7 @@ import {
   armReplyHandoffListener, stripPgpArmorBlock, pickSpliceMarker,
 } from './js/pgp/reply-handoff-runtime-core.js';
 
-export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleDecrypt };
+export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleDecrypt, promptPassphrase as promptPassphraseForTest };
 
 // ── Session status ────────────────────────────────────────────────────────────
 
@@ -398,11 +398,12 @@ async function refreshComposeButtons() {
 
 // ── Passphrase modal ──────────────────────────────────────────────────────────
 
-function promptPassphrase() {
+function promptPassphrase(message = 'Your private key passphrase is required to sign and encrypt this message.') {
   return new Promise((resolve, reject) => {
     const modal = el('passphrase-modal');
     const input = el('passphrase-input');
     const errEl = el('passphrase-error');
+    el('passphrase-modal-msg').textContent = message;
 
     input.value = '';
     errEl.classList.add('pgp-hidden');

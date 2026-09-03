@@ -132,3 +132,32 @@ describe('refreshComposeButtons', () => {
     expect(decryptBtn.classList.add).toHaveBeenCalledWith('pgp-hidden');
   });
 });
+
+describe('promptPassphrase', () => {
+  it('sets the modal message text from its argument', async () => {
+    const msgEl = { textContent: '' };
+    const input = { value: '', focus: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    const errEl = { classList: { add: vi.fn(), remove: vi.fn() } };
+    const modal = { style: {}, classList: { add: vi.fn(), remove: vi.fn() } };
+    const okBtn = { addEventListener: (_e, cb) => { okBtn._cb = cb; }, removeEventListener: vi.fn() };
+    const cancelBtn = { addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    const elements = {
+      'passphrase-modal': modal,
+      'passphrase-input': input,
+      'passphrase-error': errEl,
+      'passphrase-modal-msg': msgEl,
+      'btn-passphrase-ok': okBtn,
+      'btn-passphrase-cancel': cancelBtn,
+    };
+    global.document = { getElementById: (id) => elements[id] || null };
+    global.Office = { onReady: () => {} };
+
+    const { promptPassphraseForTest } = await import('../web/MessageCompose.js');
+    const resultPromise = promptPassphraseForTest('Enter your passphrase to decrypt this message.');
+    input.value = 'hunter2';
+    okBtn._cb();
+    await resultPromise;
+
+    expect(msgEl.textContent).toBe('Enter your passphrase to decrypt this message.');
+  });
+});
