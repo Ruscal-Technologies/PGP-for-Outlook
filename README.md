@@ -99,10 +99,14 @@ Nearly full feature set, with one notable limitation:
   slightly non-standard armor formatting.
 - **Encrypted reply** — after decrypting a message, the **Encrypted Reply** section
   at the top of the task pane provides **Reply All** and **Reply Sender** buttons.
-  These open a *new* compose window (not a standard reply) pre-filled with the
-  correct recipients, a `Re:` subject, and the decrypted content quoted with
-  sender attribution and the original send time.  Click **Encrypt** in the ribbon
-  before sending to encrypt your reply.
+  For most messages this opens a *new* compose window (not a standard reply)
+  pre-filled with the correct recipients, a `Re:` subject, and the decrypted
+  content quoted with sender attribution and the original send time. For very
+  large decrypted messages, it instead opens Outlook's own native reply (real
+  `In-Reply-To`/`References` threading) and inserts the decrypted content into
+  it automatically — on classic Outlook for Windows, a brief notification with
+  an "Insert decrypted reply" link appears if you need to complete it yourself.
+  Click **Encrypt** in the ribbon before sending to encrypt your reply.
 
 ---
 
@@ -523,6 +527,14 @@ task pane (above the decrypted content):
 
 On desktop/OWA, click **Encrypt** in the ribbon before sending.  On mobile,
 use the in-pane compose area that opens when you tap either button.
+
+For a very large decrypted message, both buttons instead open Outlook's own
+native reply (proper threading) and insert the decrypted content into it
+automatically. On classic Outlook for Windows this normally completes on its
+own within a few seconds; if you see a notification offering to "Insert
+decrypted reply," click it to finish.  If neither completes in time, a
+second, plain-text-quoted reply window opens as a fallback — close whichever
+one you don't need.
 
 ---
 
