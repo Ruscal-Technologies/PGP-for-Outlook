@@ -34,3 +34,27 @@ export function getReplyHandoffChannelName(conversationId) {
   if (!conversationId) return BASE_CHANNEL_NAME;
   return `${BASE_CHANNEL_NAME}_${encodeURIComponent(conversationId)}`;
 }
+
+/**
+ * Passed as the `formData` string to displayReplyForm()/displayReplyAllForm()
+ * in MessageRead.js's openNativeReplyWithHandoff() (instead of an empty
+ * string) so the resulting reply body carries a visible, literal marker
+ * until the handoff splices the real decrypted content in over it.
+ *
+ * Two things key off this text existing in the body:
+ *  - Functions/ReplyHandoffRuntime.classic.js checks for it before posting
+ *    its "Insert decrypted reply" notification, so that prompt only ever
+ *    shows on a reply this add-in actually opened for a handoff -- not on
+ *    every reply to every encrypted message (e.g. one the user replied to
+ *    via Outlook's own Reply button, or one already handled). That file
+ *    can't import this module (no ES modules in its restricted runtime),
+ *    so it duplicates this string literally -- see its own comment.
+ *  - applyReplyHandoff() (reply-handoff-runtime-core.js) removes it as part
+ *    of the same splice that replaces the PGP armor, so a successful
+ *    handoff leaves no trace of it.
+ *
+ * No quotes or HTML-reserved characters, deliberately -- keeps a plain
+ * string/HTML search-and-remove robust regardless of how either runtime
+ * happens to (de)serialize or escape it.
+ */
+export const HANDOFF_PENDING_MARKER = '=== PGP: Click Insert Decrypted Reply above to complete this reply ===';

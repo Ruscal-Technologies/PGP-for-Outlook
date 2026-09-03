@@ -32,6 +32,17 @@
 // with no notification and no error surfaced anywhere. Every step below is
 // wrapped so a failure is at minimum visible via a fallback notification,
 // using only the InformationalMessage type already confirmed to work here.
+//
+// HANDOFF_PENDING_MARKER: this file can't import
+// web/js/pgp/reply-handoff-channel.js (no ES modules here), so its exact
+// literal value is duplicated below -- it MUST match that module's exported
+// constant exactly, or this gate silently never fires. Checked in the body
+// before posting the notification so it only appears on a reply this add-in
+// actually opened for a handoff (via MessageRead.js's
+// openNativeReplyWithHandoff), not on every reply to every encrypted
+// message -- e.g. one the user replied to with Outlook's own Reply button,
+// or one whose handoff already completed.
+var HANDOFF_PENDING_MARKER = '=== PGP: Click Insert Decrypted Reply above to complete this reply ===';
 
 function onNewMessageComposeHandler(event) {
   function finish() {
@@ -84,25 +95,41 @@ function onNewMessageComposeHandler(event) {
           return;
         }
 
-        Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_insight', {
-          type: Office.MailboxEnums.ItemNotificationMessageType.InsightMessage,
-          message: 'A large decrypted reply is ready to be inserted into this message.',
-          icon: 'icon16',
-          actions: [
-            {
-              actionText: 'Insert decrypted reply',
-              actionType: 'showTaskPane',
-              commandId: 'msgComposeReplyHandoffButton',
-              contextData: {},
-            },
-          ],
-        }, function (notifyResult) {
-          if (notifyResult.status === Office.AsyncResultStatus.Failed) {
-            var errMessage = notifyResult.error && notifyResult.error.message;
-            console.error('ReplyHandoffRuntime.classic: InsightMessage notification failed', notifyResult.error);
-            showFallbackInfo('Reply handoff ready, but the notification failed: ' + errMessage);
+        // The real gate: only prompt on a reply this add-in actually opened
+        // for a handoff (see HANDOFF_PENDING_MARKER above).
+        Office.context.mailbox.item.body.getAsync(Office.CoercionType.Text, function (bodyResult) {
+          try {
+            if (bodyResult.status !== Office.AsyncResultStatus.Succeeded ||
+                bodyResult.value.indexOf(HANDOFF_PENDING_MARKER) === -1) {
+              finish();
+              return;
+            }
+
+            Office.context.mailbox.item.notificationMessages.replaceAsync('pgp_reply_handoff_insight', {
+              type: Office.MailboxEnums.ItemNotificationMessageType.InsightMessage,
+              message: 'A large decrypted reply is ready to be inserted into this message.',
+              icon: 'icon16',
+              actions: [
+                {
+                  actionText: 'Insert decrypted reply',
+                  actionType: 'showTaskPane',
+                  commandId: 'msgComposeReplyHandoffButton',
+                  contextData: {},
+                },
+              ],
+            }, function (notifyResult) {
+              if (notifyResult.status === Office.AsyncResultStatus.Failed) {
+                var errMessage = notifyResult.error && notifyResult.error.message;
+                console.error('ReplyHandoffRuntime.classic: InsightMessage notification failed', notifyResult.error);
+                showFallbackInfo('Reply handoff ready, but the notification failed: ' + errMessage);
+              }
+              finish();
+            });
+          } catch (bodyErr) {
+            console.error('ReplyHandoffRuntime.classic: handler failed inside body.getAsync callback', bodyErr);
+            showFallbackInfo('ReplyHandoffRuntime error: ' + bodyErr.message);
+            finish();
           }
-          finish();
         });
       } catch (innerErr) {
         console.error('ReplyHandoffRuntime.classic: handler failed inside getComposeTypeAsync callback', innerErr);

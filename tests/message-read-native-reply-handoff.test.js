@@ -60,7 +60,7 @@ describe('openNativeReplyWithHandoff — missing conversationId', () => {
     const { displayReplyForm, displayReplyAllForm } =
       installStubs({ conversationId: undefined, internetMessageId });
     ({ openNativeReplyWithHandoff } = await import('../web/MessageRead.js'));
-    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const { getReplyHandoffChannelName, HANDOFF_PENDING_MARKER } = await import('../web/js/pgp/reply-handoff-channel.js');
 
     openNativeReplyWithHandoff(true, ['a@example.com'], [], 'Re: hi', '<p>quoted</p>');
 
@@ -71,7 +71,10 @@ describe('openNativeReplyWithHandoff — missing conversationId', () => {
     expect(displayReplyForm).not.toHaveBeenCalled();
     // formData is a required parameter of both APIs (issue #20) -- calling
     // with zero arguments throws synchronously on every real invocation.
-    expect(displayReplyAllForm).toHaveBeenCalledWith('');
+    // HANDOFF_PENDING_MARKER (not '') is passed so
+    // Functions/ReplyHandoffRuntime.classic.js can gate its notification on
+    // this specific reply having actually been opened for a handoff (#22).
+    expect(displayReplyAllForm).toHaveBeenCalledWith(HANDOFF_PENDING_MARKER);
 
     // Confirm it's actually broadcasting on the internetMessageId-derived
     // channel (not the shared base channel), and ack it so the retry

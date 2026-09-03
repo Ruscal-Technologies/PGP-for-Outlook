@@ -14,7 +14,7 @@
  */
 
 import { formatDecryptedContentAsHtml } from './quoted-content.js';
-import { getReplyHandoffChannelName } from './reply-handoff-channel.js';
+import { getReplyHandoffChannelName, HANDOFF_PENDING_MARKER } from './reply-handoff-channel.js';
 
 // Matches (with margin) MessageRead.js's REPLY_HANDOFF_TIMEOUT_MS, so a
 // reply window that's genuinely waiting on a handoff isn't cut off before
@@ -191,7 +191,12 @@ export function stripPgpArmorBlock(html) {
  */
 async function applyReplyHandoff(text, isHtml) {
   try {
-    const bodyHtml = await getBodyAsync(Office.CoercionType.Html);
+    const rawBodyHtml = await getBodyAsync(Office.CoercionType.Html);
+    // Remove the pending-handoff marker MessageRead.js prepended when it
+    // opened this reply (see HANDOFF_PENDING_MARKER's docblock) -- a plain
+    // literal removal, not a regex: the marker is deliberately quote/tag-free
+    // so this is robust regardless of how it got (de)serialized.
+    const bodyHtml = rawBodyHtml.split(HANDOFF_PENDING_MARKER).join('');
     const { found, before, after } = stripPgpArmorBlock(bodyHtml);
     if (!found) {
       return { success: false, message: 'Could not find the encrypted message in this reply to replace — please verify the body before sending.' };

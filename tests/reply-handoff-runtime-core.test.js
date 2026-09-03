@@ -9,6 +9,7 @@
 // a successful splice still goes through stripPgpArmorBlock's real DOM walk.
 import { describe, it, expect } from 'vitest';
 import { armReplyHandoffListener } from '../web/js/pgp/reply-handoff-runtime-core.js';
+import { HANDOFF_PENDING_MARKER } from '../web/js/pgp/reply-handoff-channel.js';
 
 const ARMOR = '-----BEGIN PGP MESSAGE-----\nVersion: Test\n\nabc123==\n-----END PGP MESSAGE-----';
 
@@ -62,6 +63,32 @@ describe('armReplyHandoffListener — onSettled', () => {
     sender.close();
 
     expect(result).toEqual({ success: true, message: 'Decrypted message inserted into this reply.' });
+  });
+
+  it('strips the HANDOFF_PENDING_MARKER (prepended by MessageRead.js\'s displayReplyForm/displayReplyAllForm call) as part of a successful splice', async () => {
+    const conversationId = 'conv-settled-marker';
+    const { office, getSavedBody } = makeOfficeStub({
+      bodyHtml: `<div>${HANDOFF_PENDING_MARKER}</div><div>${ARMOR}</div>`,
+      composeType: 'reply',
+      conversationId,
+    });
+    global.Office = office;
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const settled = new Promise((resolve) => {
+      armReplyHandoffListener({ has110: true, has114: false, onSettled: resolve });
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'tok-marker', text: 'decrypted', isHtml: false });
+
+    const result = await settled;
+    sender.close();
+
+    expect(result.success).toBe(true);
+    expect(getSavedBody()).not.toContain(HANDOFF_PENDING_MARKER);
+    expect(getSavedBody()).toContain('decrypted');
   });
 
   it('calls onSettled with success:false immediately when the compose window is not a reply', async () => {

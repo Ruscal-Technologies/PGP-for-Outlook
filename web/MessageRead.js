@@ -25,7 +25,7 @@ import {
   getSessionEmail, getSessionShortId, onSessionCleared,
 } from './js/pgp/session-cache.js';
 import { formatDecryptedContentAsHtml, formatDecryptedContentAsPlainTextHtml } from './js/pgp/quoted-content.js';
-import { getReplyHandoffChannelName } from './js/pgp/reply-handoff-channel.js';
+import { getReplyHandoffChannelName, HANDOFF_PENDING_MARKER } from './js/pgp/reply-handoff-channel.js';
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
@@ -1494,12 +1494,17 @@ export function openNativeReplyWithHandoff(replyAll, toRecipients, ccRecipients,
 
   try {
     // formData is a required parameter for both APIs (not optional despite
-    // being commonly called with no visible effect) -- passing '' supplies
-    // no custom text, which Outlook prepends above its own native quote, so
-    // this preserves "let Outlook build the native reply" untouched. Calling
-    // these with zero arguments throws synchronously on every invocation.
-    if (replyAll) item.displayReplyAllForm('');
-    else item.displayReplyForm('');
+    // being commonly called with no visible effect) -- calling these with
+    // zero arguments throws synchronously on every invocation. Passing
+    // HANDOFF_PENDING_MARKER (rather than '') supplies visible custom text,
+    // which Outlook prepends above its own native quote (so "let Outlook
+    // build the native reply" is still untouched) -- see that constant's
+    // docblock for why: it's how Functions/ReplyHandoffRuntime.classic.js
+    // knows this specific reply is one this add-in opened for a handoff
+    // (#22), and applyReplyHandoff() removes it as part of the same splice
+    // that replaces the PGP armor.
+    if (replyAll) item.displayReplyAllForm(HANDOFF_PENDING_MARKER);
+    else item.displayReplyForm(HANDOFF_PENDING_MARKER);
   } catch (e) {
     console.error('Native reply: displayReplyForm/displayReplyAllForm failed', e);
     fallBack(HandoffFallbackReason.DISPLAY_REPLY_FAILED);

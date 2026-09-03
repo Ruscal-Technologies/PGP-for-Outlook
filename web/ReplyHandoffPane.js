@@ -21,6 +21,12 @@ import { armReplyHandoffListener } from './js/pgp/reply-handoff-runtime-core.js'
 
 const CLOSE_DELAY_MS = 900; // brief pause so the user can see the outcome before the pane closes
 
+// Matches the id ReplyHandoffRuntime.classic.js posts its InsightMessage
+// notification under -- same mail item, so this pane can dismiss it as soon
+// as it opens (clicking the notification's action doesn't clear it by
+// itself; without this it stays on screen indefinitely).
+const INSIGHT_NOTIFICATION_ID = 'pgp_reply_handoff_insight';
+
 function showStatus(message, type = 'info') {
   const bar = document.getElementById('status-bar');
   bar.className = `pgp-alert pgp-alert--${type}`;
@@ -28,6 +34,8 @@ function showStatus(message, type = 'info') {
 }
 
 Office.onReady(async () => {
+  Office.context.mailbox.item.notificationMessages.removeAsync(INSIGHT_NOTIFICATION_ID);
+
   const has110 = Office.context.requirements.isSetSupported('Mailbox', '1.10');
   const has114 = Office.context.requirements.isSetSupported('Mailbox', '1.14');
 
