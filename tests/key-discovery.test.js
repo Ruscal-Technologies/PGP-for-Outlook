@@ -11,10 +11,17 @@ vi.mock('../web/js/pgp/keyring.js', () => ({
 // want to exercise here; mock the class so fetchFromWKD's *own* logic (empty
 // buffer -> null, binary -> parsed key) is what's under test, not the WKD
 // protocol implementation itself.
+//
+// The real default export is a class (`new WKD()` in key-discovery.js), so
+// the mock must be constructible too -- an arrow-function implementation
+// isn't (real JS semantics: `new (() => {})()` throws "is not a
+// constructor"). Vitest's pre-4.1.11 mocker didn't enforce this, silently
+// masking the mismatch; a plain `function` is used here instead so it stays
+// correct regardless of the mocker's own strictness.
 vi.mock('../web/js/wkd.js', () => {
   const lookup = vi.fn();
   return {
-    default: vi.fn(() => ({ lookup })),
+    default: vi.fn(function MockWKD() { return { lookup }; }),
     __lookup: lookup, // exposed so tests can configure/inspect the shared mock
   };
 });
