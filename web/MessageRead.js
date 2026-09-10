@@ -120,10 +120,10 @@ function el(id) { return document.getElementById(id); }
  * present in the current DOM (e.g. mobile layout).
  */
 function setReplyButtonsDisabled(disabled) {
-  const replyBtn = el('btn-reply-encrypted');
   const replyAllBtn = el('btn-reply-all-encrypted');
-  if (replyBtn) replyBtn.disabled = disabled;
+  const replySenderBtn = el('btn-reply-sender-encrypted');
   if (replyAllBtn) replyAllBtn.disabled = disabled;
+  if (replySenderBtn) replySenderBtn.disabled = disabled;
 }
 
 function escHtml(str) {
@@ -1778,9 +1778,13 @@ Office.onReady(async () => {
   // section-reply is visible on all platforms (mobile hint/desktop hint swap above).
 
   // Wire reply buttons regardless of key state — the user may want to reply
-  // encrypted even if they have no local key pair yet.
-  el('btn-reply-encrypted').addEventListener('click', () => handleReplyEncrypted(false));
+  // encrypted even if they have no local key pair yet. The ids themselves
+  // now match their displayed labels (see web/MessageRead.html) — a prior
+  // mismatch between id name and label caused this exact pairing to be
+  // silently swapped twice (fixed for #20, then reintroduced by that same
+  // fix "correcting" it back to match the misleading old id names).
   el('btn-reply-all-encrypted').addEventListener('click', () => handleReplyEncrypted(true));
+  el('btn-reply-sender-encrypted').addEventListener('click', () => handleReplyEncrypted(false));
 
   // Mobile inline compose buttons.
   el('btn-mobile-encrypt-send').addEventListener('click', handleMobileEncryptReply);

@@ -4,13 +4,13 @@ import { describe, it, expect, vi } from 'vitest';
 // only what openNativeReplyWithHandoff / openReplyComposeForm touch.
 function installStubs({ conversationId, internetMessageId }) {
   const statusEl = { className: '', textContent: '', classList: { remove: vi.fn(), add: vi.fn() }, appendChild: vi.fn() };
-  const replyBtn = { disabled: false };
   const replyAllBtn = { disabled: false };
+  const replySenderBtn = { disabled: false };
   global.document = {
     getElementById: (id) => {
       if (id === 'status-bar') return statusEl;
-      if (id === 'btn-reply-encrypted') return replyBtn;
       if (id === 'btn-reply-all-encrypted') return replyAllBtn;
+      if (id === 'btn-reply-sender-encrypted') return replySenderBtn;
       return null;
     },
     createElement: () => ({}),
@@ -29,7 +29,7 @@ function installStubs({ conversationId, internetMessageId }) {
       },
     },
   };
-  return { statusEl, replyBtn, replyAllBtn, displayReplyForm, displayReplyAllForm, displayNewMessageFormAsync };
+  return { statusEl, replySenderBtn, replyAllBtn, displayReplyForm, displayReplyAllForm, displayNewMessageFormAsync };
 }
 
 let openNativeReplyWithHandoff;
@@ -147,13 +147,13 @@ describe('openNativeReplyWithHandoff — fallback warning accuracy (issue #16)',
 
 describe('openNativeReplyWithHandoff — reply buttons disabled while in flight (issue #17)', () => {
   it('disables the reply buttons once the native reply opens, and re-enables them once the ack arrives', async () => {
-    const { replyBtn, replyAllBtn } = installStubs({ conversationId: 'conv-4', internetMessageId: undefined });
+    const { replySenderBtn, replyAllBtn } = installStubs({ conversationId: 'conv-4', internetMessageId: undefined });
     ({ openNativeReplyWithHandoff } = await import('../web/MessageRead.js'));
     const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
 
     openNativeReplyWithHandoff(false, ['a@example.com'], [], 'Re: hi', '<p>quoted</p>');
 
-    expect(replyBtn.disabled).toBe(true);
+    expect(replySenderBtn.disabled).toBe(true);
     expect(replyAllBtn.disabled).toBe(true);
 
     const probe = new BroadcastChannel(getReplyHandoffChannelName('conv-4'));
@@ -166,32 +166,32 @@ describe('openNativeReplyWithHandoff — reply buttons disabled while in flight 
     await new Promise((resolve) => setTimeout(resolve, 20));
     probe.close();
 
-    expect(replyBtn.disabled).toBe(false);
+    expect(replySenderBtn.disabled).toBe(false);
     expect(replyAllBtn.disabled).toBe(false);
   });
 
   it('re-enables the reply buttons after a timed-out handoff falls back', async () => {
     vi.useFakeTimers();
-    const { replyBtn, replyAllBtn } = installStubs({ conversationId: 'conv-5', internetMessageId: undefined });
+    const { replySenderBtn, replyAllBtn } = installStubs({ conversationId: 'conv-5', internetMessageId: undefined });
     ({ openNativeReplyWithHandoff } = await import('../web/MessageRead.js'));
 
     openNativeReplyWithHandoff(false, ['a@example.com'], [], 'Re: hi', '<p>quoted</p>');
-    expect(replyBtn.disabled).toBe(true);
+    expect(replySenderBtn.disabled).toBe(true);
 
     await vi.advanceTimersByTimeAsync(25000); // past REPLY_HANDOFF_TIMEOUT_MS (20s, #22)
     vi.useRealTimers();
 
-    expect(replyBtn.disabled).toBe(false);
+    expect(replySenderBtn.disabled).toBe(false);
     expect(replyAllBtn.disabled).toBe(false);
   });
 
   it('never disables the buttons when the handoff is skipped before a native reply opens (no scoping ID)', async () => {
-    const { replyBtn, replyAllBtn } = installStubs({ conversationId: undefined, internetMessageId: undefined });
+    const { replySenderBtn, replyAllBtn } = installStubs({ conversationId: undefined, internetMessageId: undefined });
     ({ openNativeReplyWithHandoff } = await import('../web/MessageRead.js'));
 
     openNativeReplyWithHandoff(false, ['a@example.com'], [], 'Re: hi', '<p>quoted</p>');
 
-    expect(replyBtn.disabled).toBe(false);
+    expect(replySenderBtn.disabled).toBe(false);
     expect(replyAllBtn.disabled).toBe(false);
   });
 });
