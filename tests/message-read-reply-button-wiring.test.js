@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { fileURLToPath } from 'url';
 
 // Regression test for a bug that has now shipped twice: btn-reply-encrypted/
 // btn-reply-all-encrypted (old ids) no longer matched their own displayed
@@ -13,8 +13,10 @@ import { join } from 'path';
 // module, which requires the full Office.onReady stub story other
 // MessageRead.js tests carry) so a future rename or copy-paste error in
 // either file fails a test instead of shipping silently a third time.
-const htmlSource = readFileSync(join(__dirname, '../web/MessageRead.html'), 'utf8');
-const jsSource = readFileSync(join(__dirname, '../web/MessageRead.js'), 'utf8');
+const htmlPath = fileURLToPath(new URL('../web/MessageRead.html', import.meta.url));
+const jsPath = fileURLToPath(new URL('../web/MessageRead.js', import.meta.url));
+const htmlSource = readFileSync(htmlPath, 'utf8');
+const jsSource = readFileSync(jsPath, 'utf8');
 
 describe('Reply / Reply All button id, label, and wiring agreement', () => {
   it('btn-reply-all-encrypted is labeled "Reply All" in the HTML', () => {
