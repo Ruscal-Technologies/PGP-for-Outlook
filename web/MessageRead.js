@@ -1284,6 +1284,23 @@ const REPLY_HANDOFF_TIMEOUT_MS = 20000;
 const REPLY_HANDOFF_BROADCAST_INTERVAL_MS = 400;
 
 /**
+ * Which replyAll value each reply button's click should invoke
+ * handleReplyEncrypted() with, keyed by DOM id (web/MessageRead.html).
+ *
+ * The ids are historical — btn-reply-encrypted predates a relabel (55e326b)
+ * that made it the "Reply All" button and made btn-reply-all-encrypted the
+ * "Reply Sender" button, but neither id was renamed to match. Wiring by id
+ * name instead of by displayed label has already caused this exact bug once
+ * (fixed for #20, then reintroduced by that same fix wrongly "correcting"
+ * the mapping back to match the id names) — this is a plain, exported data
+ * structure specifically so a regression test can pin the mapping down.
+ */
+export const REPLY_BUTTON_WIRING = [
+  { id: 'btn-reply-encrypted', replyAll: true },      // labeled "Reply All"
+  { id: 'btn-reply-all-encrypted', replyAll: false }, // labeled "Reply Sender"
+];
+
+/**
  * Entry point for both reply buttons.
  *
  * Desktop / OWA: opens a compose window pre-filled with the quoted decrypted
@@ -1779,8 +1796,19 @@ Office.onReady(async () => {
 
   // Wire reply buttons regardless of key state — the user may want to reply
   // encrypted even if they have no local key pair yet.
-  el('btn-reply-encrypted').addEventListener('click', () => handleReplyEncrypted(false));
-  el('btn-reply-all-encrypted').addEventListener('click', () => handleReplyEncrypted(true));
+  //
+  // REPLY_BUTTON_WIRING maps each button's DOM id to the replyAll value
+  // matching what it actually SAYS on screen (web/MessageRead.html) — not
+  // its id name. btn-reply-encrypted is labeled "Reply All" and
+  // btn-reply-all-encrypted is labeled "Reply Sender": the ids are historical
+  // (predating a relabel in 55e326b) and no longer describe their own
+  // buttons. Matching the boolean to the id name instead of the label caused
+  // this exact regression once already (#20's fix, reverted here) — kept as
+  // an exported, testable data structure specifically so it can't silently
+  // flip again without a test failing.
+  for (const { id, replyAll } of REPLY_BUTTON_WIRING) {
+    el(id).addEventListener('click', () => handleReplyEncrypted(replyAll));
+  }
 
   // Mobile inline compose buttons.
   el('btn-mobile-encrypt-send').addEventListener('click', handleMobileEncryptReply);
