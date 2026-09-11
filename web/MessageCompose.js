@@ -478,12 +478,21 @@ function promptPassphrase(message = 'Your private key passphrase is required to 
 
 // ── Core encrypt flow ─────────────────────────────────────────────────────────
 
+/**
+ * @returns {Promise<boolean>} true only if THIS invocation actually
+ *   encrypted the message successfully -- never inferred by a caller from
+ *   ambient UI state (e.g. the status bar's CSS class), which could reflect
+ *   a completely different invocation (see the in-flight guard below).
+ */
 async function handleEncrypt() {
   // Guard against two concurrent runs -- e.g. a manual click landing during
   // the gap between handleAutoEncrypt()'s own pre-check and its call into
   // this function, or a rapid double-click before btn-encrypt disables.
-  // Neither trigger's status/UI updates run if this one no-ops.
-  if (_encryptInFlight) return;
+  // Neither trigger's status/UI updates run if this one no-ops -- and,
+  // critically, this invocation reports it did NOT succeed, since it did
+  // nothing; a caller must never infer success from some *other*
+  // invocation's status-bar write that happens to still be visible.
+  if (_encryptInFlight) return false;
   _encryptInFlight = true;
 
   clearStatus();
@@ -573,7 +582,7 @@ async function handleEncrypt() {
       showStatus('Message appears to already be PGP-encrypted.', 'warning');
       btn.disabled = false;
       spinner.classList.add('pgp-hidden');
-      return;
+      return false;
     }
 
     // Warn if the message body contains inline images (e.g. embedded images).
@@ -627,6 +636,7 @@ async function handleEncrypt() {
     }
 
     showStatus('✓ Message encrypted. Click Send when ready.', 'success');
+    return true;
 
   } catch (e) {
     if (e.message === 'Cancelled by user.') {
@@ -635,6 +645,7 @@ async function handleEncrypt() {
       showStatus(`Encryption failed: ${e.message}`, 'error');
       console.error(e);
     }
+    return false;
   } finally {
     spinner.classList.add('pgp-hidden');
     try {
@@ -724,9 +735,16 @@ async function handleAutoEncrypt() {
     return;
   }
 
-  await handleEncrypt();
+  // Gate on handleEncrypt()'s own return value, not on ambient status-bar
+  // state (e.g. classList.contains('pgp-alert--success')) -- if this call
+  // is skipped by the in-flight guard because a manual click already owns
+  // handleEncrypt() at this moment, the status bar could still be showing a
+  // stale success from a completely unrelated invocation. A false/undefined
+  // return here means THIS invocation performed no encryption, regardless
+  // of what the status bar currently displays.
+  const encrypted = await handleEncrypt();
 
-  if (el('status-bar').classList.contains('pgp-alert--success')) {
+  if (encrypted) {
     await maybeAutoSend();
   }
 }

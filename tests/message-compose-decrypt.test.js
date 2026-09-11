@@ -447,6 +447,38 @@ describe('handleEncrypt — button visibility', () => {
     expect(decryptBtn.classList.remove).toHaveBeenCalledWith('pgp-hidden');
     expect(encryptBtn.classList.add).toHaveBeenCalledWith('pgp-hidden');
   });
+
+  it('returns true only for the run that actually encrypted, even when a concurrent run leaves a stale success status visible', async () => {
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { handleEncrypt } = await import('../web/MessageCompose.js');
+
+    // handleEncrypt() checks its in-flight guard synchronously, before its
+    // own first await -- so calling it a second time in the same tick,
+    // before the first call has had a chance to progress, deterministically
+    // finds the guard already held (no fake timers or manual deferred
+    // promises needed for this ordering).
+    const firstRun = handleEncrypt();
+    const secondRun = handleEncrypt();
+    const [firstResult, secondResult] = await Promise.all([firstRun, secondRun]);
+
+    // The first (real) run succeeded and left the status bar showing
+    // success -- exactly the ambient state a caller must NOT infer its own
+    // success from.
+    expect(firstResult).toBe(true);
+    expect(statusEl.className).toContain('pgp-alert--success');
+    // The second run did nothing (skipped by the guard) and must report
+    // that honestly, regardless of what the status bar -- written by the
+    // OTHER run -- currently shows.
+    expect(secondResult).toBe(false);
+  });
 });
 
 describe('auto-encrypt on pane load', () => {

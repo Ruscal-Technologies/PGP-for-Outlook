@@ -825,16 +825,28 @@ async function handleSavePrefs() {
   await saveSignDefault(signDefault);
 
   const autoEncryptDefault = el('pref-auto-encrypt').checked;
+
+  // saveAutoEncryptDefault(false) unconditionally force-clears pgp_auto_send
+  // as one of its own side effects (see key-storage.js) -- correct and
+  // intended when the user explicitly turns auto-encrypt off on a host that
+  // can actually show the auto-send toggle, but not otherwise: on a
+  // pre-1.15 host this pane can't render that toggle at all, so saving here
+  // has nothing to do with auto-send and must not be able to wipe a true
+  // value synced in from a different, capable device. Capture it before the
+  // write so it can be restored below if this host can't show it.
+  const priorAutoSend = getAutoSendDefault();
   await saveAutoEncryptDefault(autoEncryptDefault);
 
   // Only persist auto-send's checked state on hosts that can actually show/
-  // mean it (Mailbox 1.15+). On older hosts, leave the stored value alone
-  // entirely rather than writing false — this pane can't render the toggle
-  // there, so a false write would silently wipe a true value the user set
-  // from a different, 1.15-capable device (roaming settings sync).
+  // mean it (Mailbox 1.15+). On older hosts, restore whatever was stored
+  // before this save — undoing saveAutoEncryptDefault()'s own force-off
+  // above if it just fired — rather than leaving today's false write in
+  // place, since this pane can't render the toggle here at all.
   if (_has115) {
     const autoSendDefault = autoEncryptDefault && el('pref-auto-send').checked;
     await saveAutoSendDefault(autoSendDefault);
+  } else {
+    await saveAutoSendDefault(priorAutoSend);
   }
 
   showStatus('prefs-save-status', 'Preferences saved.', 'success');
