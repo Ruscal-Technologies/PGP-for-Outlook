@@ -41,6 +41,8 @@ import {
   saveKeyPair, clearKeyPair,
   getOrgOverride, saveOrgOverride, clearOrgOverride,
   getSignDefault, saveSignDefault,
+  getAutoEncryptDefault, saveAutoEncryptDefault,
+  getAutoSendDefault, saveAutoSendDefault,
 } from './js/pgp/key-storage.js';
 import {
   addContactKey, removeContactKey, listContactKeys, getKeyringStorageInfo,
@@ -50,6 +52,16 @@ import {
   loadOrgConfig, getOrgConfig, isCompanyKeyEnabled, isCompanyKeyRequired,
   getCompanyKeyEmails, fetchCompanyKeys, isSupportButtonHidden,
 } from './js/pgp/org-config.js';
+
+/**
+ * True when the host meets Mailbox 1.15. Required for item.sendAsync(),
+ * used to gate whether the auto-send preference is even shown — hidden
+ * entirely (not shown-but-disabled) below this requirement set, same
+ * degradation pattern MessageCompose.js uses for _has18/_has110/_has114.
+ * Set once in Office.onReady via Office.context.requirements.isSetSupported().
+ * @type {boolean}
+ */
+let _has115 = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -788,6 +800,21 @@ async function handleClearOrgOverride() {
  */
 function refreshPrefsPanel() {
   el('pref-sign-default').checked = getSignDefault();
+  el('pref-auto-encrypt').checked = getAutoEncryptDefault();
+  el('pref-auto-send').checked = _has115 && getAutoEncryptDefault() && getAutoSendDefault();
+  updateAutoSendVisibility();
+}
+
+/**
+ * Show the auto-send toggle only when both this host supports it (Mailbox
+ * 1.15) and auto-encrypt is currently checked — auto-send has no meaning
+ * without auto-encrypt. Called on load and whenever #pref-auto-encrypt changes.
+ */
+function updateAutoSendVisibility() {
+  const show = _has115 && el('pref-auto-encrypt').checked;
+  el('pref-auto-send-wrapper').classList.toggle('pgp-hidden', !show);
+  el('pref-auto-send-hint').classList.toggle('pgp-hidden', !show);
+  if (!show) el('pref-auto-send').checked = false;
 }
 
 /**
@@ -796,6 +823,16 @@ function refreshPrefsPanel() {
 async function handleSavePrefs() {
   const signDefault = el('pref-sign-default').checked;
   await saveSignDefault(signDefault);
+
+  const autoEncryptDefault = el('pref-auto-encrypt').checked;
+  await saveAutoEncryptDefault(autoEncryptDefault);
+
+  // Only persist auto-send's checked state when it's actually visible/
+  // meaningful (host supports it and auto-encrypt is on) — otherwise treat
+  // it as off, matching saveAutoEncryptDefault()'s own force-off behavior.
+  const autoSendDefault = _has115 && autoEncryptDefault && el('pref-auto-send').checked;
+  await saveAutoSendDefault(autoSendDefault);
+
   showStatus('prefs-save-status', 'Preferences saved.', 'success');
 }
 
@@ -813,6 +850,7 @@ function escHtml(str) {
 
 Office.onReady(async () => {
   const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
+  _has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
 
   // Load org config from domain or override
   await loadOrgConfig(userEmail);
@@ -903,6 +941,7 @@ Office.onReady(async () => {
 
   // Personal preferences
   el('btn-save-prefs').addEventListener('click', handleSavePrefs);
+  el('pref-auto-encrypt').addEventListener('change', updateAutoSendVisibility);
 
   // Initial render
   await refreshMyKeyPanel();
