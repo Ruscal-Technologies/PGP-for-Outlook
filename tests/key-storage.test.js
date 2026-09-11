@@ -210,6 +210,33 @@ describe('saveAutoEncryptAndSendDefaults (atomic combined write)', () => {
   });
 });
 
+describe('acknowledged warnings bucket', () => {
+  it('hasAcknowledgedWarning returns false for a key that has never been saved', () => {
+    expect(keyStorage.hasAcknowledgedWarning('encryptSendConfirm')).toBe(false);
+  });
+
+  it('saveAcknowledgedWarning persists the key so hasAcknowledgedWarning returns true', async () => {
+    await keyStorage.saveAcknowledgedWarning('encryptSendConfirm');
+    expect(keyStorage.hasAcknowledgedWarning('encryptSendConfirm')).toBe(true);
+  });
+
+  it('saving one key does not affect another', async () => {
+    await keyStorage.saveAcknowledgedWarning('someOtherWarning');
+    expect(keyStorage.hasAcknowledgedWarning('encryptSendConfirm')).toBe(false);
+    expect(keyStorage.hasAcknowledgedWarning('someOtherWarning')).toBe(true);
+  });
+
+  it('resetAllAcknowledgedWarnings clears every acknowledged key', async () => {
+    await keyStorage.saveAcknowledgedWarning('encryptSendConfirm');
+    await keyStorage.saveAcknowledgedWarning('someOtherWarning');
+
+    await keyStorage.resetAllAcknowledgedWarnings();
+
+    expect(keyStorage.hasAcknowledgedWarning('encryptSendConfirm')).toBe(false);
+    expect(keyStorage.hasAcknowledgedWarning('someOtherWarning')).toBe(false);
+  });
+});
+
 describe('estimateStorageUsage', () => {
   it('grows when keys are stored', async () => {
     const before = keyStorage.estimateStorageUsage();

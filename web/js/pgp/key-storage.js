@@ -26,6 +26,10 @@
  *   pgp_auto_send    — Boolean: automatically send once auto-encryption completes
  *                      successfully (defaults to false; forced to false whenever
  *                      pgp_auto_encrypt is false — meaningless without it)
+ *   pgp_acknowledged_warnings — Object: { [warningKey]: true, ... } — one-time
+ *                      warnings the user has confirmed (e.g. the Encrypt &
+ *                      Send button's send-immediately confirmation). Cleared
+ *                      entirely by Manage PGP's "Reset All Warnings" button.
  *
  * Storage budget (approximate):
  *   Private key (ECC/curve25519 + passphrase encryption): ~3–6 KB
@@ -46,6 +50,7 @@ const KEYS = {
   SIGN_DEFAULT: 'pgp_sign_default',
   AUTO_ENCRYPT: 'pgp_auto_encrypt',
   AUTO_SEND:    'pgp_auto_send',
+  ACKNOWLEDGED_WARNINGS: 'pgp_acknowledged_warnings',
 };
 
 function settings() {
@@ -238,6 +243,43 @@ export async function saveAutoEncryptAndSendDefaults(autoEncryptValue, autoSendV
   await saveAsync();
 }
 
+// ── One-time acknowledged warnings ───────────────────────────────────────────
+
+/**
+ * Generic bucket for "I acknowledged this once, remember it" confirmations —
+ * e.g. the Encrypt & Send button's one-time "this sends immediately" warning.
+ * Stored as a single object ({ [key]: true, ... }) rather than one roaming
+ * settings key per warning, so future one-time warnings can reuse this same
+ * mechanism (and a single "Reset all warnings" action in Manage PGP can clear
+ * every one of them at once) instead of each inventing its own storage key.
+ *
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function hasAcknowledgedWarning(key) {
+  const stored = settings().get(KEYS.ACKNOWLEDGED_WARNINGS) || {};
+  return stored[key] === true;
+}
+
+/**
+ * Persist that the user has acknowledged the warning identified by `key`.
+ * @param {string} key
+ */
+export async function saveAcknowledgedWarning(key) {
+  const stored = settings().get(KEYS.ACKNOWLEDGED_WARNINGS) || {};
+  settings().set(KEYS.ACKNOWLEDGED_WARNINGS, { ...stored, [key]: true });
+  await saveAsync();
+}
+
+/**
+ * Clear every acknowledged warning, so each one is shown again on its next
+ * trigger. Used by Manage PGP's "Reset All Warnings" button.
+ */
+export async function resetAllAcknowledgedWarnings() {
+  settings().remove(KEYS.ACKNOWLEDGED_WARNINGS);
+  await saveAsync();
+}
+
 // ── Storage diagnostics ───────────────────────────────────────────────────────
 
 /**
@@ -254,6 +296,7 @@ export function estimateStorageUsage() {
     [KEYS.SIGN_DEFAULT]: settings().get(KEYS.SIGN_DEFAULT) || false,
     [KEYS.AUTO_ENCRYPT]: settings().get(KEYS.AUTO_ENCRYPT) || false,
     [KEYS.AUTO_SEND]:    settings().get(KEYS.AUTO_SEND) || false,
+    [KEYS.ACKNOWLEDGED_WARNINGS]: settings().get(KEYS.ACKNOWLEDGED_WARNINGS) || {},
   };
   return JSON.stringify(data).length;
 }
