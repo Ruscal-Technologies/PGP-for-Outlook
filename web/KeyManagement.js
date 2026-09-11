@@ -827,11 +827,15 @@ async function handleSavePrefs() {
   const autoEncryptDefault = el('pref-auto-encrypt').checked;
   await saveAutoEncryptDefault(autoEncryptDefault);
 
-  // Only persist auto-send's checked state when it's actually visible/
-  // meaningful (host supports it and auto-encrypt is on) — otherwise treat
-  // it as off, matching saveAutoEncryptDefault()'s own force-off behavior.
-  const autoSendDefault = _has115 && autoEncryptDefault && el('pref-auto-send').checked;
-  await saveAutoSendDefault(autoSendDefault);
+  // Only persist auto-send's checked state on hosts that can actually show/
+  // mean it (Mailbox 1.15+). On older hosts, leave the stored value alone
+  // entirely rather than writing false — this pane can't render the toggle
+  // there, so a false write would silently wipe a true value the user set
+  // from a different, 1.15-capable device (roaming settings sync).
+  if (_has115) {
+    const autoSendDefault = autoEncryptDefault && el('pref-auto-send').checked;
+    await saveAutoSendDefault(autoSendDefault);
+  }
 
   showStatus('prefs-save-status', 'Preferences saved.', 'success');
 }

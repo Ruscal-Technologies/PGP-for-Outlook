@@ -65,14 +65,21 @@ export default class WKD {
         const urlAdvanced = `https://openpgpkey.${domain}/.well-known/openpgpkey/${domain}/hu/${localPartBase32}?l=${localPartEscaped}`;
         const urlDirect = `https://${domain}/.well-known/openpgpkey/hu/${localPartBase32}?l=${localPartEscaped}`;
 
+        // AbortSignal.timeout requires Chrome 103+/Firefox 100+/Safari 16+,
+        // above this add-in's documented floor — omit the signal there
+        // rather than throwing synchronously and breaking WKD lookup outright.
+        const fetchOptions = typeof AbortSignal?.timeout === 'function'
+            ? { signal: AbortSignal.timeout(10000) }
+            : undefined;
+
         let response;
         try {
-            response = await fetch(urlAdvanced, { signal: AbortSignal.timeout(10000) });
+            response = await fetch(urlAdvanced, fetchOptions);
             if (response.status !== 200) {
                 throw new Error('Advanced WKD lookup failed: ' + response.statusText);
             }
         } catch (err) {
-            response = await fetch(urlDirect, { signal: AbortSignal.timeout(10000) });
+            response = await fetch(urlDirect, fetchOptions);
             if (response.status !== 200) {
                 throw new Error('Direct WKD lookup failed: ' + response.statusText);
             }
