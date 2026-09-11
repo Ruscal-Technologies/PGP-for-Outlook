@@ -133,14 +133,6 @@ let _has110 = false;
 let _has114 = false;
 
 /**
- * True when the host meets Mailbox 1.15. Required for item.sendAsync(),
- * used to gate auto-send (see maybeAutoSend()). Set once in Office.onReady
- * via Office.context.requirements.isSetSupported().
- * @type {boolean}
- */
-let _has115 = false;
-
-/**
  * Guards the auto-encrypt cascade so it can only ever fire once per pane
  * session — set true the instant maybeAutoEncrypt() is invoked, before any
  * async work, so a second call (there is none today, but this makes the
@@ -718,8 +710,8 @@ async function handleAutoEncrypt() {
 /**
  * Fires automatically once handleAutoEncrypt() confirms a successful
  * encrypt. Only runs when this host supports Mailbox 1.15 (required by
- * sendAsync) and the user's auto-send preference is on — always re-checked
- * locally at call time, never trusted from the stored preference alone,
+ * sendAsync) and the user's auto-send preference is on — both re-checked
+ * locally at call time, never trusted from a value cached at pane load,
  * since roaming settings sync across devices and a preference enabled on a
  * 1.15-capable host could be read back on one that isn't. No status message
  * is shown before or during sending, and none is relied upon after — per
@@ -727,7 +719,8 @@ async function handleAutoEncrypt() {
  * guaranteed to execute once the item is sent.
  */
 async function maybeAutoSend() {
-  if (!_has115 || !getAutoSendDefault()) return;
+  const has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
+  if (!has115 || !getAutoSendDefault()) return;
   Office.context.mailbox.item.sendAsync((asyncResult) => {
     if (asyncResult.status === Office.AsyncResultStatus.Failed) {
       showStatus(`Automatic send failed: ${asyncResult.error.message}`, 'error');
@@ -1249,7 +1242,6 @@ Office.onReady(async () => {
   _has18 = Office.context.requirements.isSetSupported('Mailbox', '1.8');
   _has110 = Office.context.requirements.isSetSupported('Mailbox', '1.10');
   _has114 = Office.context.requirements.isSetSupported('Mailbox', '1.14');
-  _has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
 
   // Fire-and-forget: inert for every ordinary compose window unless a
   // matching reply-handoff broadcast actually arrives (see its own docblock).
