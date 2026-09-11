@@ -68,18 +68,23 @@ export default class WKD {
         // AbortSignal.timeout requires Chrome 103+/Firefox 100+/Safari 16+,
         // above this add-in's documented floor — omit the signal there
         // rather than throwing synchronously and breaking WKD lookup outright.
-        const fetchOptions = typeof AbortSignal?.timeout === 'function'
+        // A fresh signal per call: AbortSignal.timeout()'s clock starts at
+        // creation, so reusing one instance across both fetches would leave
+        // the direct-URL fallback with whatever budget the advanced lookup
+        // didn't use (zero, if the advanced call is what timed out) instead
+        // of its own full 10s.
+        const fetchOptions = () => (typeof AbortSignal?.timeout === 'function'
             ? { signal: AbortSignal.timeout(10000) }
-            : undefined;
+            : undefined);
 
         let response;
         try {
-            response = await fetch(urlAdvanced, fetchOptions);
+            response = await fetch(urlAdvanced, fetchOptions());
             if (response.status !== 200) {
                 throw new Error('Advanced WKD lookup failed: ' + response.statusText);
             }
         } catch (err) {
-            response = await fetch(urlDirect, fetchOptions);
+            response = await fetch(urlDirect, fetchOptions());
             if (response.status !== 200) {
                 throw new Error('Direct WKD lookup failed: ' + response.statusText);
             }
