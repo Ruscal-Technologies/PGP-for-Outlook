@@ -141,6 +141,17 @@ let _has114 = false;
  */
 let _autoEncryptFired = false;
 
+/**
+ * True while handleEncrypt() is actively running, from ANY trigger (a
+ * manual click on btn-encrypt, or the auto-encrypt cascade). Prevents two
+ * concurrent handleEncrypt() calls -- e.g. the user manually clicking
+ * Encrypt during the window between handleAutoEncrypt()'s own pre-check and
+ * its call into handleEncrypt() -- which would otherwise let two invocations
+ * race over the same module-level recipient/attachment state at once.
+ * @type {boolean}
+ */
+let _encryptInFlight = false;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function el(id) { return document.getElementById(id); }
@@ -197,6 +208,11 @@ async function loadRecipients() {
   const all = [...(toRaw || []), ...(ccRaw || [])];
 
   if (all.length === 0) {
+    // Reset rather than leaving whatever was resolved last time -- a caller
+    // that only checks "does everything currently in _recipientResults have
+    // a key" must never see a stale, no-longer-current recipient list as
+    // valid just because this branch didn't touch it.
+    _recipientResults = [];
     el('recipients-loading').classList.add('pgp-hidden');
     el('recipients-empty').classList.remove('pgp-hidden');
     updateEncryptButton();
@@ -463,6 +479,13 @@ function promptPassphrase(message = 'Your private key passphrase is required to 
 // ── Core encrypt flow ─────────────────────────────────────────────────────────
 
 async function handleEncrypt() {
+  // Guard against two concurrent runs -- e.g. a manual click landing during
+  // the gap between handleAutoEncrypt()'s own pre-check and its call into
+  // this function, or a rapid double-click before btn-encrypt disables.
+  // Neither trigger's status/UI updates run if this one no-ops.
+  if (_encryptInFlight) return;
+  _encryptInFlight = true;
+
   clearStatus();
   const btn = el('btn-encrypt');
   const spinner = el('encrypt-spinner');
@@ -620,6 +643,7 @@ async function handleEncrypt() {
       console.error('refreshComposeButtons failed', e);
     }
     btn.disabled = false;
+    _encryptInFlight = false;
   }
 }
 

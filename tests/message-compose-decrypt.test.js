@@ -618,6 +618,29 @@ describe('auto-encrypt on pane load', () => {
     expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
     expect(statusEl.textContent).toContain('inline images');
   });
+
+  it('aborts without firing when regular attachments are present on a host below Mailbox 1.8', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+
+    // _has18 is only ever set inside Office.onReady, which this test file's
+    // stubbed Office.onReady never invokes -- it stays at its module-default
+    // `false` throughout every test here, so a non-empty, non-inline
+    // attachment list is exactly what's needed to exercise this branch;
+    // isSetSupported doesn't need overriding for this one.
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+      attachments: [{ id: 'a1', name: 'report.pdf', isInline: false }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toContain("can't encrypt attachments");
+  });
 });
 
 describe('auto-send after auto-encrypt', () => {
