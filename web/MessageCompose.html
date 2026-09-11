@@ -28,6 +28,23 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════════════
+       ENCRYPT / DECRYPT BUTTON
+  ══════════════════════════════════════════════════════════ -->
+  <div>
+    <button class="pgp-btn pgp-btn--primary pgp-btn--full" id="btn-encrypt" disabled>
+      <span class="pgp-spinner pgp-hidden" id="encrypt-spinner"></span>
+      Encrypt Message
+    </button>
+    <button class="pgp-btn pgp-btn--secondary pgp-btn--full pgp-hidden" id="btn-decrypt">
+      <span class="pgp-spinner pgp-hidden" id="decrypt-spinner"></span>
+      Decrypt Message
+    </button>
+    <p style="font-size:11px;color:#605e5c;margin:6px 0 0;text-align:center;">
+      After encrypting, click <strong>Send</strong> in Outlook as normal.
+    </p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
        RECIPIENTS
   ══════════════════════════════════════════════════════════ -->
   <section class="pgp-section" id="section-recipients">
@@ -101,23 +118,6 @@
       Your personal default can be changed in <strong>Manage Keys → Personal Preferences</strong>.
     </p>
   </section>
-
-  <!-- ═══════════════════════════════════════════════════════
-       ENCRYPT / DECRYPT BUTTON
-  ══════════════════════════════════════════════════════════ -->
-  <div>
-    <button class="pgp-btn pgp-btn--primary pgp-btn--full" id="btn-encrypt" disabled>
-      <span class="pgp-spinner pgp-hidden" id="encrypt-spinner"></span>
-      Encrypt Message
-    </button>
-    <button class="pgp-btn pgp-btn--secondary pgp-btn--full pgp-hidden" id="btn-decrypt">
-      <span class="pgp-spinner pgp-hidden" id="decrypt-spinner"></span>
-      Decrypt Message
-    </button>
-    <p style="font-size:11px;color:#605e5c;margin:6px 0 0;text-align:center;">
-      After encrypting, click <strong>Send</strong> in Outlook as normal.
-    </p>
-  </div>
 
   <!-- ── Attachment removal confirmation modal ────────── -->
   <div id="attach-remove-modal" class="pgp-hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:1000;">
