@@ -18,9 +18,11 @@ vi.mock('../web/js/pgp/keyring.js', () => ({
 // constructor"). Vitest's pre-4.1.11 mocker didn't enforce this, silently
 // masking the mismatch; a plain `function` is used here instead so it stays
 // correct regardless of the mocker's own strictness.
-vi.mock('../web/js/wkd.js', () => {
+vi.mock('../web/js/wkd.js', async (importOriginal) => {
+  const actual = await importOriginal();
   const lookup = vi.fn();
   return {
+    ...actual, // keep the real fetchTimeoutOptions() -- fetchFromVKS (key-discovery.js) imports it directly from this module
     default: vi.fn(function MockWKD() { return { lookup }; }),
     __lookup: lookup, // exposed so tests can configure/inspect the shared mock
   };

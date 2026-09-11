@@ -29,7 +29,7 @@
  * keyring.addContactKey(email, armoredKey) after the user confirms the key.
  */
 
-import WKD from '../wkd.js';
+import WKD, { fetchTimeoutOptions } from '../wkd.js';
 import { getContactKeyObject } from './keyring.js';
 import { readPublicKey, readPublicKeyFromBinary } from './pgp-core.js';
 
@@ -122,10 +122,7 @@ export async function fetchFromWKD(email) {
  */
 export async function fetchFromVKS(email, keyserver = 'keys.openpgp.org') {
   const url = `https://${keyserver}/vks/v1/by-email/${encodeURIComponent(email)}`;
-  const fetchOptions = typeof AbortSignal?.timeout === 'function'
-    ? { signal: AbortSignal.timeout(10000) }
-    : undefined;
-  const response = await fetch(url, fetchOptions);
+  const response = await fetch(url, fetchTimeoutOptions(10000));
   if (response.status !== 200) return null;
   const armoredKey = await response.text();
   if (!armoredKey || !armoredKey.includes('BEGIN PGP')) return null;
