@@ -935,6 +935,10 @@ describe('runForceEncryptAndSend', () => {
     const keyStorage = await import('../web/js/pgp/key-storage.js');
     keyStorage.hasAcknowledgedWarning = vi.fn(() => false);
     keyStorage.saveAcknowledgedWarning = vi.fn(async () => {});
+    // Reset explicitly each test -- vi.resetModules() doesn't recreate the
+    // vi.mock()'d module object itself, so a per-test override (e.g. the
+    // "no key pair" test below) would otherwise leak into later tests.
+    keyStorage.hasKeyPair = vi.fn(() => true);
   });
 
   it('shows the confirmation panel and does nothing until confirmed', async () => {
@@ -957,6 +961,25 @@ describe('runForceEncryptAndSend', () => {
     await runPromise;
 
     expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    expect(keyStorage.saveAcknowledgedWarning).not.toHaveBeenCalled();
+  });
+
+  it('shows an error and never shows the confirmation panel when the user has no key pair', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.hasKeyPair = vi.fn(() => false);
+
+    const { encryptSendConfirmPanel, statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    await runForceEncryptAndSend();
+
+    expect(encryptSendConfirmPanel.classList.remove).not.toHaveBeenCalledWith('pgp-hidden');
+    expect(keyStorage.saveAcknowledgedWarning).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toMatch(/don't have a PGP key pair/);
   });
 
   it('encrypts and sends once confirmed, on a host that supports Mailbox 1.15', async () => {

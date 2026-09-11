@@ -891,6 +891,11 @@ function confirmEncryptSend() {
  *     now-encrypted message for the user to send manually.
  */
 async function runForceEncryptAndSend() {
+  if (!hasKeyPair()) {
+    showStatus("You don't have a PGP key pair — open Manage PGP to generate one.", 'error');
+    return;
+  }
+
   if (!hasAcknowledgedWarning('encryptSendConfirm')) {
     const confirmed = await confirmEncryptSend();
     if (!confirmed) return;
@@ -899,7 +904,14 @@ async function runForceEncryptAndSend() {
 
   const ready = await waitForAllRecipientKeys();
   if (!ready) {
-    showStatus("Encrypt & Send didn't complete — not all recipients have a resolved key.", 'warning');
+    // Disambiguate "gave up waiting" from "there was nothing to wait on" —
+    // matches maybeAutoEncrypt()'s use of _recipientResults.length for the
+    // same distinction.
+    if (_recipientResults.length > 0) {
+      showStatus("Encrypt & Send didn't complete — not all recipients have a resolved key.", 'warning');
+    } else {
+      showStatus('No recipients to send to.', 'warning');
+    }
     return;
   }
 
