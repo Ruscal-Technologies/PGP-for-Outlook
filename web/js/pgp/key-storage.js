@@ -20,6 +20,12 @@
  *   pgp_org_override — Object: manual org config override (see org-config.js)
  *   pgp_sign_default — Boolean: user's personal default for the "sign messages" toggle
  *                      (defaults to false; overridable per-message in the compose pane)
+ *   pgp_auto_encrypt — Boolean: automatically encrypt once all recipients have a
+ *                      resolved key, right after the compose pane loads (defaults
+ *                      to false)
+ *   pgp_auto_send    — Boolean: automatically send once auto-encryption completes
+ *                      successfully (defaults to false; forced to false whenever
+ *                      pgp_auto_encrypt is false — meaningless without it)
  *
  * Storage budget (approximate):
  *   Private key (ECC/curve25519 + passphrase encryption): ~3–6 KB
@@ -38,6 +44,8 @@ const KEYS = {
   KEYRING:      'pgp_keyring',
   ORG_OVERRIDE: 'pgp_org_override',
   SIGN_DEFAULT: 'pgp_sign_default',
+  AUTO_ENCRYPT: 'pgp_auto_encrypt',
+  AUTO_SEND:    'pgp_auto_send',
 };
 
 function settings() {
@@ -162,6 +170,51 @@ export async function saveSignDefault(value) {
   await saveAsync();
 }
 
+/**
+ * Return the user's auto-encrypt preference: automatically encrypt once all
+ * recipients have a resolved key, right after the compose pane loads.
+ * When not set, returns false (off by default).
+ *
+ * @returns {boolean}
+ */
+export function getAutoEncryptDefault() {
+  return settings().get(KEYS.AUTO_ENCRYPT) === true;
+}
+
+/**
+ * Persist the user's auto-encrypt preference. Turning it off also forces
+ * auto-send off — auto-send has no meaning without auto-encrypt, and leaving
+ * a stale `true` in storage would silently reactivate it the moment
+ * auto-encrypt is re-enabled without the user having re-confirmed auto-send
+ * specifically.
+ *
+ * @param {boolean} value
+ */
+export async function saveAutoEncryptDefault(value) {
+  settings().set(KEYS.AUTO_ENCRYPT, !!value);
+  if (!value) settings().set(KEYS.AUTO_SEND, false);
+  await saveAsync();
+}
+
+/**
+ * Return the user's auto-send preference: automatically send once
+ * auto-encryption completes successfully. When not set, returns false.
+ *
+ * @returns {boolean}
+ */
+export function getAutoSendDefault() {
+  return settings().get(KEYS.AUTO_SEND) === true;
+}
+
+/**
+ * Persist the user's auto-send preference.
+ * @param {boolean} value
+ */
+export async function saveAutoSendDefault(value) {
+  settings().set(KEYS.AUTO_SEND, !!value);
+  await saveAsync();
+}
+
 // ── Storage diagnostics ───────────────────────────────────────────────────────
 
 /**
@@ -176,6 +229,8 @@ export function estimateStorageUsage() {
     [KEYS.KEYRING]:      settings().get(KEYS.KEYRING) || {},
     [KEYS.ORG_OVERRIDE]: settings().get(KEYS.ORG_OVERRIDE) || {},
     [KEYS.SIGN_DEFAULT]: settings().get(KEYS.SIGN_DEFAULT) || false,
+    [KEYS.AUTO_ENCRYPT]: settings().get(KEYS.AUTO_ENCRYPT) || false,
+    [KEYS.AUTO_SEND]:    settings().get(KEYS.AUTO_SEND) || false,
   };
   return JSON.stringify(data).length;
 }

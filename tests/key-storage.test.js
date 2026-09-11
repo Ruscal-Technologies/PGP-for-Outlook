@@ -120,6 +120,49 @@ describe('sign default preference', () => {
   });
 });
 
+describe('auto-encrypt default preference', () => {
+  it('defaults to false', () => {
+    expect(keyStorage.getAutoEncryptDefault()).toBe(false);
+  });
+
+  it('round-trips true/false', async () => {
+    await keyStorage.saveAutoEncryptDefault(true);
+    expect(keyStorage.getAutoEncryptDefault()).toBe(true);
+
+    await keyStorage.saveAutoEncryptDefault(false);
+    expect(keyStorage.getAutoEncryptDefault()).toBe(false);
+  });
+
+  it('forces auto-send off when auto-encrypt is turned off', async () => {
+    await keyStorage.saveAutoEncryptDefault(true);
+    await keyStorage.saveAutoSendDefault(true);
+    expect(keyStorage.getAutoSendDefault()).toBe(true);
+
+    await keyStorage.saveAutoEncryptDefault(false);
+    expect(keyStorage.getAutoSendDefault()).toBe(false);
+  });
+
+  it('does not touch auto-send when auto-encrypt is turned on', async () => {
+    await keyStorage.saveAutoSendDefault(false);
+    await keyStorage.saveAutoEncryptDefault(true);
+    expect(keyStorage.getAutoSendDefault()).toBe(false);
+  });
+});
+
+describe('auto-send default preference', () => {
+  it('defaults to false', () => {
+    expect(keyStorage.getAutoSendDefault()).toBe(false);
+  });
+
+  it('round-trips true/false', async () => {
+    await keyStorage.saveAutoSendDefault(true);
+    expect(keyStorage.getAutoSendDefault()).toBe(true);
+
+    await keyStorage.saveAutoSendDefault(false);
+    expect(keyStorage.getAutoSendDefault()).toBe(false);
+  });
+});
+
 describe('estimateStorageUsage', () => {
   it('grows when keys are stored', async () => {
     const before = keyStorage.estimateStorageUsage();
