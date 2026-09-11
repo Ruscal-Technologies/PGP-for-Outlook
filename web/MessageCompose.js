@@ -695,49 +695,36 @@ export function mergePreservingManuallyResolvedKeys(freshResults, priorResults) 
 }
 
 /**
- * Fires once, right after the compose pane loads, if the user's
- * auto-encrypt preference is on. Calls loadRecipients() itself as its own
- * first step rather than assuming Office.onReady's own startup call already
- * populated _recipientResults — this makes the function self-contained and
- * directly callable in isolation (including from a test), at the cost of a
- * second, redundant recipient/key-resolution pass immediately after
- * Office.onReady's own startup one. This is the same accepted tradeoff
- * handleAutoEncrypt() below makes with loadAttachments()/
- * reconcileInlineAttachments() — a small, harmless duplication in exchange
- * for not having to reach into or depend on another function's completed
- * side effects.
+ * Waits/retries every 2 seconds, using loadRecipients() +
+ * mergePreservingManuallyResolvedKeys(), until every currently-listed
+ * recipient has a resolved key, or a pass makes no more progress than the
+ * previous one (see the original maybeAutoEncrypt() reasoning this was
+ * extracted from: no arbitrary invented timeout is needed, because
+ * loadRecipients() already fully awaits both Outlook's own recipient-
+ * resolution poll and the complete key-discovery chain before returning).
+ * Calls loadRecipients() itself as its first step. Shared by
+ * maybeAutoEncrypt() and the forced Encrypt & Send flow
+ * (runForceEncryptAndSend()) so both reuse the exact same wait logic.
  *
- * After that first load, waits/retries every 2 seconds as long as each pass
- * makes forward progress (a new recipient appears, or a previously-keyless
- * recipient now has one), and gives up the moment a pass produces the exact
- * same recipient/key-found snapshot as the previous pass. No arbitrary
- * invented timeout: because loadRecipients() fully awaits both Outlook's
- * recipient-resolution poll and the complete key-discovery chain before
- * returning, "no change since last pass" reliably means every
- * currently-listed recipient's lookup has already run to completion.
+ * @returns {Promise<boolean>} true once every currently-listed recipient has
+ *   a key. False if there are no recipients at all, or if a pass made no
+ *   progress over the previous one (gave up) — callers distinguish those two
+ *   cases themselves via _recipientResults.length, since they warrant
+ *   different status messages.
  */
-async function maybeAutoEncrypt() {
-  if (_autoEncryptFired || !getAutoEncryptDefault() || !hasKeyPair()) return;
-  _autoEncryptFired = true;
-
+async function waitForAllRecipientKeys() {
   await loadRecipients();
-  if (_recipientResults.length === 0) return; // nothing to encrypt to; leave as manual
+  if (_recipientResults.length === 0) return false;
 
   let previousSnapshot = null;
   while (true) {
-    if (_recipientResults.length > 0 && _recipientResults.every(r => !!r.key)) {
-      await handleAutoEncrypt();
-      return;
-    }
+    if (_recipientResults.every(r => !!r.key)) return true;
 
     const snapshot = _recipientResults.map(r => `${r.email}:${!!r.key}`).join(',');
-    if (snapshot === previousSnapshot) {
-      showStatus("Auto-encrypt didn't complete — not all recipients have a resolved key.", 'warning');
-      return;
-    }
+    if (snapshot === previousSnapshot) return false;
     previousSnapshot = snapshot;
 
-    showStatus('Waiting for all recipients to resolve — auto-encrypt will run once ready…', 'info');
+    showStatus('Waiting for all recipients to resolve — encryption will run once ready…', 'info');
     await new Promise(r => setTimeout(r, 2000));
 
     // loadRecipients() unconditionally overwrites _recipientResults with a
@@ -752,6 +739,30 @@ async function maybeAutoEncrypt() {
     await loadRecipients();
     _recipientResults = mergePreservingManuallyResolvedKeys(_recipientResults, beforePoll);
   }
+}
+
+/**
+ * Fires once, right after the compose pane loads, if the user's
+ * auto-encrypt preference is on. See waitForAllRecipientKeys() for the full
+ * wait/retry/give-up behavior this delegates to.
+ */
+async function maybeAutoEncrypt() {
+  if (_autoEncryptFired || !getAutoEncryptDefault() || !hasKeyPair()) return;
+  _autoEncryptFired = true;
+
+  const ready = await waitForAllRecipientKeys();
+  if (!ready) {
+    // Only show the "didn't complete" notice when there WERE recipients to
+    // wait on -- an empty To/Cc list is "nothing to encrypt to; leave as
+    // manual", not a failure worth a warning (matches the pre-extraction
+    // behavior exactly).
+    if (_recipientResults.length > 0) {
+      showStatus("Auto-encrypt didn't complete — not all recipients have a resolved key.", 'warning');
+    }
+    return;
+  }
+
+  await handleAutoEncrypt();
 }
 
 /**
@@ -795,24 +806,38 @@ async function handleAutoEncrypt() {
 }
 
 /**
+ * Calls Office.context.mailbox.item.sendAsync() and shows an error status if
+ * it fails. Shows no status before or during sending, and none after a
+ * genuine success -- per Microsoft's own sendAsync docs, code meant to run
+ * after a successful send isn't guaranteed to execute (the add-in may
+ * already be torn down). Shared by maybeAutoSend() (gated on preferences)
+ * and the forced Encrypt & Send flow (runForceEncryptAndSend(), unconditional).
+ *
+ * @returns {Promise<void>}
+ */
+function performSend() {
+  return new Promise((resolve) => {
+    Office.context.mailbox.item.sendAsync((asyncResult) => {
+      if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+        showStatus(`Automatic send failed: ${asyncResult.error.message}`, 'error');
+      }
+      resolve();
+    });
+  });
+}
+
+/**
  * Fires automatically once handleAutoEncrypt() confirms a successful
  * encrypt. Only runs when this host supports Mailbox 1.15 (required by
  * sendAsync) and the user's auto-send preference is on — both re-checked
  * locally at call time, never trusted from a value cached at pane load,
  * since roaming settings sync across devices and a preference enabled on a
- * 1.15-capable host could be read back on one that isn't. No status message
- * is shown before or during sending, and none is relied upon after — per
- * Microsoft's own sendAsync docs, code meant to run on success isn't
- * guaranteed to execute once the item is sent.
+ * 1.15-capable host could be read back on one that isn't.
  */
 async function maybeAutoSend() {
   const has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
   if (!has115 || !getAutoSendDefault()) return;
-  Office.context.mailbox.item.sendAsync((asyncResult) => {
-    if (asyncResult.status === Office.AsyncResultStatus.Failed) {
-      showStatus(`Automatic send failed: ${asyncResult.error.message}`, 'error');
-    }
-  });
+  await performSend();
 }
 
 async function handleDecrypt() {
