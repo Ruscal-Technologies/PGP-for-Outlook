@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PGP for Outlook — User's Guide</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+      color: #1b1a19;
+      line-height: 1.6;
+    }
+    h1 { font-size: 28px; margin-bottom: 4px; }
+    h2 { font-size: 20px; margin-top: 40px; border-bottom: 1px solid #e1dfdd; padding-bottom: 6px; }
+    h3 { font-size: 16px; margin-top: 24px; }
+    p, li { font-size: 15px; }
+    .subtitle { color: #605e5c; font-size: 15px; margin-top: 0; }
+    .callout {
+      background: #fff4ce;
+      border-left: 4px solid #ffb900;
+      padding: 12px 16px;
+      margin: 16px 0;
+      border-radius: 2px;
+    }
+    .callout--danger {
+      background: #fde7e9;
+      border-left-color: #a80000;
+    }
+    code {
+      background: #f3f2f1;
+      padding: 1px 5px;
+      border-radius: 2px;
+      font-size: 13px;
+    }
+    a { color: #0078d4; }
+  </style>
+</head>
+<body>
+  <h1>PGP for Outlook — User's Guide</h1>
+  <p class="subtitle">Everything you need to send and receive encrypted email, without needing to know how PGP works under the hood.</p>
+
+  <h2>What this add-in does</h2>
+  <p>
+    It encrypts the body of your email messages (and, on supported versions
+    of Outlook, attachments too) so that only your intended recipients — the
+    people who also have this add-in and a PGP key — can read them. Anyone
+    intercepting the message in transit, or with access to the mail server,
+    sees only unreadable scrambled text.
+  </p>
+  <p>
+    Subject lines and the To/From/Cc headers are <strong>not</strong>
+    encrypted — this is a limitation of email itself, not this add-in. Don't
+    put anything sensitive in the subject line.
+  </p>
+
+  <h2>One-time setup: generate your key</h2>
+  <ol>
+    <li>Open <strong>Manage PGP</strong> from the Outlook ribbon.</li>
+    <li>Click <strong>Generate New Key Pair</strong>, enter your name and confirm your email address, and choose a strong passphrase. Write this passphrase down somewhere safe — if you lose it, no one (including your IT department) can recover your encrypted mail.</li>
+    <li>That's it. Your key is generated and stored securely, synced automatically to every device you use Outlook on.</li>
+  </ol>
+
+  <h2>Sending an encrypted message</h2>
+  <ol>
+    <li>Compose a new message as normal, and address it to your recipient(s).</li>
+    <li>Open the <strong>Encrypt</strong> pane from the ribbon.</li>
+    <li>The pane looks up a PGP key for each recipient automatically. If a recipient doesn't have one on file yet, you'll see that here — you can't encrypt to someone without a key.</li>
+    <li>Click <strong>Encrypt Message</strong>. Your message body is replaced with encrypted text.</li>
+    <li>Click <strong>Send</strong> in Outlook as normal.</li>
+  </ol>
+  <div class="callout">
+    Changed your mind after encrypting? A <strong>Decrypt Message</strong>
+    button appears in its place — click it to restore the original message
+    and start over.
+  </div>
+
+  <h2>Reading an encrypted message</h2>
+  <p>
+    Open the message and select the <strong>Decrypt</strong> pane from the
+    ribbon. Enter your passphrase once per session (it's remembered for 15
+    minutes of inactivity) and the original message appears.
+  </p>
+
+  <h2>Automatic encryption and sending (optional, off by default)</h2>
+  <p>
+    In <strong>Manage PGP → Personal Preferences</strong>, two optional
+    settings can make sending encrypted mail faster if you send it often to
+    the same people:
+  </p>
+  <h3>Automatically encrypt if all recipients have valid keys</h3>
+  <p>
+    When this is on, opening the Encrypt pane on a new message automatically
+    encrypts it the moment every recipient's key has been found — you don't
+    need to click Encrypt yourself. If any recipient doesn't have a key, or
+    the message needs your attention for another reason (like an embedded
+    image that can't be encrypted), it's left for you to handle manually,
+    exactly as it works today.
+  </p>
+  <h3>Automatically send once auto-encryption completes</h3>
+  <div class="callout callout--danger">
+    <strong>This setting sends your message with no further review.</strong>
+    Once encryption succeeds, the message is sent immediately — there is no
+    confirmation step, and once it starts, there is no way to stop it. Only
+    turn this on if you're confident your recipients and message content are
+    correct before you finish composing. This option is only available when
+    "Automatically encrypt" (above) is also on, and only on newer versions
+    of Outlook that support it.
+  </div>
+
+  <h2>Frequently asked questions</h2>
+  <h3>What if I lose my passphrase?</h3>
+  <p>
+    There is no way to recover an encrypted message without it — not even
+    your IT administrator can help. Store it somewhere safe (a password
+    manager is ideal).
+  </p>
+  <h3>Can I read my own sent messages later?</h3>
+  <p>
+    Yes. Every message you encrypt is automatically also encrypted to your
+    own key, so you can always decrypt and re-read anything you've sent.
+  </p>
+  <h3>What happens if I send an attachment?</h3>
+  <p>
+    On Outlook 2021, Microsoft 365, and Outlook on the web, attachments are
+    encrypted individually alongside the message body. On older versions of
+    Outlook, attachment encryption isn't available — you'll be asked to
+    confirm removing attachments before the message can be encrypted.
+  </p>
+
+  <p style="margin-top:48px;color:#605e5c;font-size:13px;">
+    Questions not answered here? Contact your IT administrator or the team
+    that manages this add-in for your organization.
+  </p>
+</body>
+</html>
