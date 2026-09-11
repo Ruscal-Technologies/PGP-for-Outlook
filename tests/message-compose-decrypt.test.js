@@ -10,6 +10,8 @@ vi.mock('../web/js/pgp/key-storage.js', () => ({
   getPublicKey: vi.fn(() => 'armored-pub-key'),
   hasKeyPair: vi.fn(() => true),
   getSignDefault: vi.fn(() => false),
+  getAutoEncryptDefault: vi.fn(() => false),
+  getAutoSendDefault: vi.fn(() => false),
 }));
 
 // Keep the real detectPgpContent/stripPgpExtension/uint8ArrayToBase64/
@@ -58,7 +60,10 @@ vi.mock('../web/js/pgp/org-config.js', () => ({
 function installStubs({ bodyText = '', attachments = [], recipients = [] } = {}) {
   const encryptBtn = { classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) }, disabled: false, focus: vi.fn() };
   const decryptBtn = { classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) }, disabled: false, focus: vi.fn() };
-  const statusEl = { className: '', textContent: '', classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) } };
+  // classList.contains reflects the real className string (rather than a
+  // hardcoded false) since handleAutoEncrypt() checks it after handleEncrypt()
+  // calls showStatus(), which sets className directly, not via classList.add.
+  const statusEl = { className: '', textContent: '', classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(function (cls) { return statusEl.className.split(/\s+/).includes(cls); }) } };
   const spinnerEls = {
     'encrypt-spinner': { classList: { add: vi.fn(), remove: vi.fn() } },
     'decrypt-spinner': { classList: { add: vi.fn(), remove: vi.fn() } },
@@ -441,5 +446,413 @@ describe('handleEncrypt — button visibility', () => {
 
     expect(decryptBtn.classList.remove).toHaveBeenCalledWith('pgp-hidden');
     expect(encryptBtn.classList.add).toHaveBeenCalledWith('pgp-hidden');
+  });
+
+  it('returns true only for the run that actually encrypted, even when a concurrent run leaves a stale success status visible', async () => {
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { handleEncrypt } = await import('../web/MessageCompose.js');
+
+    // handleEncrypt() checks its in-flight guard synchronously, before its
+    // own first await -- so calling it a second time in the same tick,
+    // before the first call has had a chance to progress, deterministically
+    // finds the guard already held (no fake timers or manual deferred
+    // promises needed for this ordering).
+    const firstRun = handleEncrypt();
+    const secondRun = handleEncrypt();
+    const [firstResult, secondResult] = await Promise.all([firstRun, secondRun]);
+
+    // The first (real) run succeeded and left the status bar showing
+    // success -- exactly the ambient state a caller must NOT infer its own
+    // success from.
+    expect(firstResult).toBe(true);
+    expect(statusEl.className).toContain('pgp-alert--success');
+    // The second run did nothing (skipped by the guard) and must report
+    // that honestly, regardless of what the status bar -- written by the
+    // OTHER run -- currently shows.
+    expect(secondResult).toBe(false);
+  });
+
+  it('refuses to encrypt when there are no recipients at all, even though an empty array vacuously passes .every()', async () => {
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [], // no To/Cc recipients whatsoever
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { handleEncrypt } = await import('../web/MessageCompose.js');
+    const result = await handleEncrypt();
+
+    expect(result).toBe(false);
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toContain('Not all recipients have a resolved key yet');
+  });
+});
+
+describe('mergePreservingManuallyResolvedKeys', () => {
+  it('preserves a prior key when the fresh pass has none for the same email', async () => {
+    const { mergePreservingManuallyResolvedKeys } = await import('../web/MessageCompose.js');
+    const priorResults = [
+      { email: 'a@example.com', key: { fake: 'pasted-key' }, status: 'found_local', source: 'Pasted', armoredKey: 'ARMOR' },
+    ];
+    const freshResults = [
+      { email: 'a@example.com', key: null, status: 'not_found', source: null, armoredKey: null },
+    ];
+
+    expect(mergePreservingManuallyResolvedKeys(freshResults, priorResults)).toEqual(priorResults);
+  });
+
+  it('uses the fresh result when it already has its own key', async () => {
+    const { mergePreservingManuallyResolvedKeys } = await import('../web/MessageCompose.js');
+    const priorResults = [{ email: 'a@example.com', key: { fake: 'old-key' }, status: 'found_local', source: 'Pasted', armoredKey: 'OLD' }];
+    const freshResults = [{ email: 'a@example.com', key: { fake: 'new-key' }, status: 'found', source: 'WKD', armoredKey: 'NEW' }];
+
+    expect(mergePreservingManuallyResolvedKeys(freshResults, priorResults)).toEqual(freshResults);
+  });
+
+  it('uses the fresh result (still keyless) when there is no matching prior entry to preserve', async () => {
+    const { mergePreservingManuallyResolvedKeys } = await import('../web/MessageCompose.js');
+    const priorResults = [];
+    const freshResults = [{ email: 'new-recipient@example.com', key: null, status: 'not_found', source: null, armoredKey: null }];
+
+    expect(mergePreservingManuallyResolvedKeys(freshResults, priorResults)).toEqual(freshResults);
+  });
+});
+
+describe('auto-encrypt on pane load', () => {
+  beforeEach(async () => {
+    // MessageCompose.js tracks _autoEncryptFired as module-level state so it
+    // can only fire once per real pane session — vi.resetModules() gives
+    // each test here its own fresh module instance so that guard doesn't
+    // leak across tests, matching the same pattern message-compose.test.js
+    // already uses for this file's other module-level state.
+    vi.resetModules();
+    clearSessionKey();
+
+    // vi.resetModules() only reloads real (non-mocked) modules — the
+    // key-discovery.js mock instance registered by vi.mock() at the top of
+    // this file is a singleton that survives across it, so a test that
+    // overrides resolveRecipients with a persistent .mockResolvedValue(...)
+    // (rather than a self-consuming .mockResolvedValueOnce(...)) would
+    // otherwise leak that override into the next test. Restore the default
+    // "every recipient resolves immediately" behavior here so each test
+    // starts from the same baseline.
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients.mockReset();
+    keyDiscovery.resolveRecipients.mockImplementation(async (emails) => emails.map((email) => (
+      { email, key: { fake: 'recipient-key' }, status: 'found', source: 'keyring', armoredKey: null }
+    )));
+  });
+
+  it('fires handleEncrypt automatically when auto-encrypt is on and all recipients already have keys at pane load', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(false);
+
+    const { encryptBtn, decryptBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(decryptBtn.classList.remove).toHaveBeenCalledWith('pgp-hidden');
+    expect(encryptBtn.classList.add).toHaveBeenCalledWith('pgp-hidden');
+  });
+
+  it('does not fire when auto-encrypt is off', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(false);
+
+    const { encryptBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(encryptBtn.classList.add).not.toHaveBeenCalledWith('pgp-hidden');
+  });
+
+  it('does not fire a second time on the same pane session even if called again', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(false);
+
+    installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+    expect(pgpCore.encryptMessage).toHaveBeenCalledTimes(1);
+
+    await maybeAutoEncryptForTest();
+    expect(pgpCore.encryptMessage).toHaveBeenCalledTimes(1); // still 1, not 2
+  });
+
+  it('waits and retries when a recipient has no key yet, then fires once one appears', async () => {
+    vi.useFakeTimers();
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(false);
+
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'slow@example.com' }],
+    });
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients
+      .mockResolvedValueOnce([{ email: 'slow@example.com', key: null, status: 'not-found', source: null, armoredKey: null }])
+      .mockResolvedValueOnce([{ email: 'slow@example.com', key: { fake: 'recipient-key' }, status: 'found', source: 'keyring', armoredKey: null }]);
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    const runPromise = maybeAutoEncryptForTest();
+
+    // maybeAutoEncrypt()'s own first action is a fresh loadRecipients() call,
+    // which internally polls Outlook's recipients collection twice (via
+    // getRecipientsAsync's own ~300ms internal retry) before resolving — so
+    // even this FIRST pass needs a timer advance to complete, not just the
+    // 2s wait between auto-encrypt's own poll passes below. 500ms safely
+    // covers that internal ~300ms delay.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(statusEl.textContent).toContain('Waiting for all recipients to resolve');
+
+    // Advance past the 2s poll interval (which itself contains another
+    // internal ~300ms recipient-poll delay, safely covered within this
+    // window) to trigger the retry pass, which now finds the key.
+    await vi.advanceTimersByTimeAsync(2500);
+    await runPromise;
+
+    expect(pgpCore.encryptMessage).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it('gives up and shows a notice when no progress is made between two consecutive passes', async () => {
+    vi.useFakeTimers();
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'nokey@example.com' }],
+    });
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients.mockResolvedValue(
+      [{ email: 'nokey@example.com', key: null, status: 'not-found', source: null, armoredKey: null }],
+    );
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    const runPromise = maybeAutoEncryptForTest();
+
+    await vi.advanceTimersByTimeAsync(500); // flush the initial loadRecipients() call
+    await vi.advanceTimersByTimeAsync(2500); // second pass: identical result -> give up
+    await runPromise;
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toContain("didn't complete");
+    vi.useRealTimers();
+  });
+
+  it('aborts without firing when inline attachments are present', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello <img src="cid:abc123"></p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toContain('inline images');
+  });
+
+  it('aborts without firing when regular attachments are present on a host below Mailbox 1.8', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+
+    // _has18 is only ever set inside Office.onReady, which this test file's
+    // stubbed Office.onReady never invokes -- it stays at its module-default
+    // `false` throughout every test here, so a non-empty, non-inline
+    // attachment list is exactly what's needed to exercise this branch;
+    // isSetSupported doesn't need overriding for this one.
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+      attachments: [{ id: 'a1', name: 'report.pdf', isInline: false }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toContain("can't encrypt attachments");
+  });
+});
+
+describe('auto-send after auto-encrypt', () => {
+  beforeEach(async () => {
+    // Same reasoning as the 'auto-encrypt on pane load' describe above:
+    // maybeAutoEncrypt() only ever fires once per module instance
+    // (_autoEncryptFired), so each test here needs its own fresh module.
+    vi.resetModules();
+    clearSessionKey();
+
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients.mockReset();
+    keyDiscovery.resolveRecipients.mockImplementation(async (emails) => emails.map((email) => (
+      { email, key: { fake: 'recipient-key' }, status: 'found', source: 'keyring', armoredKey: null }
+    )));
+  });
+
+  it('calls item.sendAsync when auto-send is on, the host supports Mailbox 1.15, and auto-encrypt just succeeded', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(true);
+
+    installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(sendAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call sendAsync when the host does not support Mailbox 1.15, even if auto-send is on', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(true);
+
+    installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    // isSetSupported returning false for 1.15 specifically simulates an
+    // older host that supports enough for auto-encrypt but not sendAsync.
+    global.Office.context.requirements.isSetSupported = (family, version) => version !== '1.15';
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(sendAsync).not.toHaveBeenCalled();
+  });
+
+  it('does not call sendAsync when auto-send is off', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(false);
+
+    installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(sendAsync).not.toHaveBeenCalled();
+  });
+
+  it('shows an error status and does not throw when sendAsync itself fails', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(true);
+
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'failed', error: { message: 'blocked by another add-in' } }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(statusEl.textContent).toContain('Automatic send failed');
+    expect(statusEl.textContent).toContain('blocked by another add-in');
+  });
+
+  it('does not call sendAsync when auto-encrypt itself fails', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(true);
+
+    installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockRejectedValue(new Error('boom'));
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(sendAsync).not.toHaveBeenCalled();
   });
 });

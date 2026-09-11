@@ -16,6 +16,10 @@
   <!-- ── Global status bar ──────────────────────────────── -->
   <div id="status-bar" class="pgp-hidden"></div>
 
+  <p style="font-size:12px;margin:0 0 12px;">
+    📖 <a href="user-guide.html" target="_blank" rel="noopener">User's Guide</a> — how to use this add-in
+  </p>
+
   <!-- ═══════════════════════════════════════════════════════
        MY KEY PAIR
   ══════════════════════════════════════════════════════════ -->
@@ -363,6 +367,28 @@
       Signing lets recipients verify the message came from you. Requires your
       passphrase at send time. Off by default; enable here to make it your
       personal default.
+    </p>
+
+    <label class="pgp-toggle" style="margin-bottom:10px;">
+      <input type="checkbox" id="pref-auto-encrypt" />
+      <span class="pgp-toggle__track"></span>
+      <span class="pgp-toggle__label">Automatically encrypt if all recipients have valid keys</span>
+    </label>
+    <p style="font-size:12px;color:#605e5c;margin:0 0 10px 50px;">
+      When you open the Encrypt pane on a new message, if every recipient
+      already has a valid PGP key, encryption starts automatically — no need
+      to click Encrypt yourself. Off by default.
+    </p>
+
+    <label class="pgp-toggle pgp-hidden" id="pref-auto-send-wrapper" style="margin-bottom:10px;">
+      <input type="checkbox" id="pref-auto-send" />
+      <span class="pgp-toggle__track"></span>
+      <span class="pgp-toggle__label">Automatically send once auto-encryption completes</span>
+    </label>
+    <p class="pgp-hidden" id="pref-auto-send-hint" style="font-size:12px;color:#a80000;margin:0 0 10px 50px;">
+      ⚠ The message will be sent with no further review once encryption
+      succeeds — there is no confirmation step and no way to stop it once it
+      starts. Only available when the option above is on.
     </p>
 
     <div id="prefs-save-status" class="pgp-hidden pgp-mt-sm"></div>

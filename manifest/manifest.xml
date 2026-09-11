@@ -11,7 +11,7 @@
   ================================================================ -->
 
   <Id>4086c384-c2b3-4932-9b97-2b4d14c4821a</Id>
-  <Version>1.0.4.7</Version>
+  <Version>1.0.4.8</Version>
   <ProviderName>Ruscal Technologies</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="PGP Encryption" />
@@ -60,7 +60,7 @@
     </Form>
   </FormSettings>
 
-  <Permissions>ReadWriteItem</Permissions>
+  <Permissions>ReadWriteMailbox</Permissions>
 
   <Rule xsi:type="RuleCollection" Mode="Or">
     <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read" />
@@ -223,7 +223,7 @@
         <bt:String id="readDecryptSuperTipTitle"         DefaultValue="Decrypt PGP Message" />
         <bt:String id="composeEncryptButtonLabel"    DefaultValue="Encrypt" />
         <bt:String id="composeEncryptSuperTipTitle"  DefaultValue="Encrypt PGP Message" />
-        <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage Keys" />
+        <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage PGP" />
         <bt:String id="manageKeysSuperTipTitle"      DefaultValue="PGP Key Management" />
       </bt:ShortStrings>
 
@@ -490,7 +490,7 @@
           <bt:String id="readDecryptSuperTipTitle"         DefaultValue="Decrypt PGP Message" />
           <bt:String id="composeEncryptButtonLabel"    DefaultValue="Encrypt" />
           <bt:String id="composeEncryptSuperTipTitle"  DefaultValue="Encrypt PGP Message" />
-          <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage Keys" />
+          <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage PGP" />
           <bt:String id="manageKeysSuperTipTitle"      DefaultValue="PGP Key Management" />
           <bt:String id="replyHandoffButtonLabel"      DefaultValue="Insert Decrypted Reply" />
           <bt:String id="replyHandoffSuperTipTitle"    DefaultValue="Insert Decrypted Reply" />

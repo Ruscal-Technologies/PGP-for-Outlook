@@ -28,6 +28,7 @@ software, plugins, or IT-managed infrastructure.
 | **Signed-only messages** | Displays and verifies PGP cleartext-signed messages |
 | **Encrypted reply** | After decrypting, the **Encrypted Reply** section in the read task pane opens a new compose window pre-filled with recipients (To/CC), subject (`Re: …`), and the decrypted content quoted with sender attribution and timestamp — on desktop and OWA. On iOS/Android, an in-pane workaround encrypts the reply and copies the armor to the clipboard for pasting into a normal Outlook reply |
 | **Session key cache** | Unlocked private key cached in memory for 15 minutes; passphrase is never stored |
+| **Auto-encrypt / auto-send** | Opt-in preferences (off by default, set in Manage PGP → Personal Preferences) that encrypt automatically once every recipient has a resolved key, and — separately, and only on hosts new enough to support it — send automatically once that encrypt succeeds. There is no confirmation step before an auto-send goes out, so enable it only once you're comfortable trusting the automation |
 
 ---
 
@@ -37,6 +38,7 @@ software, plugins, or IT-managed infrastructure.
 |-------------|----------------|
 | Microsoft 365 / Outlook | Any current subscription (web, Windows, Mac) |
 | Office JavaScript API | Mailbox **1.8** (required for compose-side attachment access) |
+| Auto-send | Mailbox **1.15** (older hosts can still use auto-*encrypt*, but the auto-*send* toggle is hidden and its stored preference is left untouched) |
 | Browser / WebView2 | Edge WebView2 or any modern browser (Chrome 90+, Firefox 90+, Safari 15+) |
 
 > **Outlook 2019 and earlier (perpetual license):** The add-in will load in
@@ -210,7 +212,7 @@ docs/
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                      Outlook ribbon                          │
-│  [ Encrypt ]  [ Decrypt ]  [ Manage Keys ]                   │
+│  [ Encrypt ]  [ Decrypt ]  [ Manage PGP ]                    │
 └────────┬───────────────┬──────────────┬──────────────────────┘
          │               │              │
     Compose          Read pane      Key Mgmt
@@ -378,6 +380,14 @@ upload the XML.
 Microsoft 365 Admin Center → Settings → Integrated Apps → Upload custom app.
 Or use the `New-OrganizationAddIn` PowerShell cmdlet.
 
+> **Admin note — auto-send permission escalation:** the auto-send feature
+> requires the manifest's `ReadWriteMailbox` permission (a step up from
+> `ReadWriteItem`), which Outlook shows a distinct, more visible consent
+> description for. Re-deploying a manifest update that bumps this permission
+> should be expected to require fresh admin re-approval in each tenant before
+> auto-send will work anywhere, independent of when the manifest itself is
+> re-uploaded.
+
 That wizard also accepts a **link to a manifest file** instead of a manual
 upload. This repository's CI publishes a rolling GitHub Release, tagged
 `latest`, containing the current `manifest/manifest.xml` — updated
@@ -455,7 +465,7 @@ discoverable via **WKD** (preferred) or **VKS** (keys.openpgp.org).
 ### Fallback: manual override
 
 If your org cannot host a well-known file, an admin (or the user themselves)
-can set the org config manually via **Manage Keys → Organization Settings →
+can set the org config manually via **Manage PGP → Organization Settings →
 Manual Override → Save Override**.  This stores the config in the user's own
 roaming settings and takes precedence over any well-known URL.
 
@@ -465,7 +475,7 @@ roaming settings and takes precedence over any well-known URL.
 
 ### Initial setup
 
-1. Open any email in Outlook and click **Manage Keys** in the ribbon.
+1. Open any email in Outlook and click **Manage PGP** in the ribbon.
 2. Set up your key pair — choose one of:
    - **Generate New Key Pair** — choose ECC (recommended) or RSA-4096 for
      legacy compatibility, fill in your name, email, and a strong passphrase.
@@ -482,7 +492,7 @@ roaming settings and takes precedence over any well-known URL.
 
 ### Adding a contact's key
 
-1. In **Manage Keys → Contacts' Keyring**, type the contact's email and click
+1. In **Manage PGP → Contacts' Keyring**, type the contact's email and click
    **Find** — the add-in checks WKD and keys.openpgp.org automatically.
 2. If their key is found, verify the fingerprint with them out-of-band, then
    click **Save to Keyring**.

@@ -41,6 +41,8 @@ import {
   saveKeyPair, clearKeyPair,
   getOrgOverride, saveOrgOverride, clearOrgOverride,
   getSignDefault, saveSignDefault,
+  getAutoEncryptDefault,
+  getAutoSendDefault, saveAutoEncryptAndSendDefaults,
 } from './js/pgp/key-storage.js';
 import {
   addContactKey, removeContactKey, listContactKeys, getKeyringStorageInfo,
@@ -50,6 +52,16 @@ import {
   loadOrgConfig, getOrgConfig, isCompanyKeyEnabled, isCompanyKeyRequired,
   getCompanyKeyEmails, fetchCompanyKeys, isSupportButtonHidden,
 } from './js/pgp/org-config.js';
+
+/**
+ * True when the host meets Mailbox 1.15. Required for item.sendAsync(),
+ * used to gate whether the auto-send preference is even shown — hidden
+ * entirely (not shown-but-disabled) below this requirement set, same
+ * degradation pattern MessageCompose.js uses for _has18/_has110/_has114.
+ * Set once in Office.onReady via Office.context.requirements.isSetSupported().
+ * @type {boolean}
+ */
+let _has115 = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -788,6 +800,21 @@ async function handleClearOrgOverride() {
  */
 function refreshPrefsPanel() {
   el('pref-sign-default').checked = getSignDefault();
+  el('pref-auto-encrypt').checked = getAutoEncryptDefault();
+  el('pref-auto-send').checked = _has115 && getAutoEncryptDefault() && getAutoSendDefault();
+  updateAutoSendVisibility();
+}
+
+/**
+ * Show the auto-send toggle only when both this host supports it (Mailbox
+ * 1.15) and auto-encrypt is currently checked — auto-send has no meaning
+ * without auto-encrypt. Called on load and whenever #pref-auto-encrypt changes.
+ */
+function updateAutoSendVisibility() {
+  const show = _has115 && el('pref-auto-encrypt').checked;
+  el('pref-auto-send-wrapper').classList.toggle('pgp-hidden', !show);
+  el('pref-auto-send-hint').classList.toggle('pgp-hidden', !show);
+  if (!show) el('pref-auto-send').checked = false;
 }
 
 /**
@@ -796,6 +823,28 @@ function refreshPrefsPanel() {
 async function handleSavePrefs() {
   const signDefault = el('pref-sign-default').checked;
   await saveSignDefault(signDefault);
+
+  const autoEncryptDefault = el('pref-auto-encrypt').checked;
+
+  // Compute the FINAL desired auto-send value up front, then persist both
+  // preferences in one atomic write (saveAutoEncryptAndSendDefaults) rather
+  // than two separate saveAsync() round-trips. Two separate writes would be
+  // unsafe here: saveAutoEncryptDefault(false) force-clears auto-send as one
+  // of its own side effects (see key-storage.js) -- correct and intended
+  // when the user explicitly turns auto-encrypt off on a host that can
+  // actually show the auto-send toggle, but not otherwise. On a pre-1.15
+  // host this pane can't render that toggle at all, so saving here has
+  // nothing to do with auto-send and must preserve whatever was already
+  // stored (e.g. a true value synced in from a different, capable device) —
+  // but if that restoration were a SECOND write and it failed (a real,
+  // already-handled failure mode; see saveAsync()'s docs), the FIRST
+  // write's force-off would already be persisted remotely, permanently
+  // losing the value this code means to preserve.
+  const autoSendDefault = _has115
+    ? (autoEncryptDefault && el('pref-auto-send').checked)
+    : getAutoSendDefault(); // pre-1.15: leave whatever is already stored untouched
+  await saveAutoEncryptAndSendDefaults(autoEncryptDefault, autoSendDefault);
+
   showStatus('prefs-save-status', 'Preferences saved.', 'success');
 }
 
@@ -813,6 +862,7 @@ function escHtml(str) {
 
 Office.onReady(async () => {
   const userEmail = Office.context.mailbox.userProfile?.emailAddress || '';
+  _has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
 
   // Load org config from domain or override
   await loadOrgConfig(userEmail);
@@ -903,6 +953,7 @@ Office.onReady(async () => {
 
   // Personal preferences
   el('btn-save-prefs').addEventListener('click', handleSavePrefs);
+  el('pref-auto-encrypt').addEventListener('change', updateAutoSendVisibility);
 
   // Initial render
   await refreshMyKeyPanel();

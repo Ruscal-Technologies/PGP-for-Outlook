@@ -16,6 +16,40 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 /**
+ * Build a fetch() options object that aborts the request after `ms`
+ * milliseconds, degrading gracefully across three tiers of browser support
+ * rather than assuming the newest API is always available:
+ *   1. AbortSignal.timeout() (Chrome 103+/Firefox 100+/Safari 16+) — used
+ *      when present, since it needs no manual cleanup.
+ *   2. A plain AbortController + setTimeout(), which works everywhere this
+ *      add-in's documented floor (Chrome 90+/Firefox 90+/Safari 15+) already
+ *      supports — AbortController itself predates that floor by years, even
+ *      though AbortSignal.timeout() is newer than it.
+ *   3. No signal at all, only if AbortController itself doesn't exist —
+ *      omitting the option (undefined) rather than throwing keeps the fetch
+ *      itself working, just without a timeout, on a host old enough to lack
+ *      both.
+ * `typeof AbortSignal !== 'undefined'` (not `AbortSignal?.timeout`) guards
+ * the first tier: optional chaining only protects against a null/undefined
+ * *value*, not an undeclared *identifier* — referencing an undeclared global
+ * directly still throws a ReferenceError regardless of `?.`.
+ *
+ * @param {number} ms
+ * @returns {{signal: AbortSignal}|undefined}
+ */
+export function fetchTimeoutOptions(ms) {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+        return { signal: AbortSignal.timeout(ms) };
+    }
+    if (typeof AbortController !== 'undefined') {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), ms);
+        return { signal: controller.signal };
+    }
+    return undefined;
+}
+
+/**
  * This class implements a client for the Web Key Directory (WKD) protocol
  * in order to lookup keys on designated servers.
  * @see https://datatracker.ietf.org/doc/draft-koch-openpgp-webkey-service/
@@ -32,6 +66,13 @@ export default class WKD {
 
     /**
      * Search for a public key using Web Key Directory protocol.
+     *
+     * NOTE: this method deviates from the original wkd-client upstream
+     * source (see file header) by adding an explicit 10-second timeout to
+     * both fetch() calls below — the upstream code has none, which let a
+     * hung network request block indefinitely (a real risk once this
+     * add-in's auto-encrypt feature waits on key lookups to resolve).
+     *
      * @param   {String}   options.email         User's email.
      * @returns {Uint8Array} The public key.
      * @async
@@ -58,14 +99,22 @@ export default class WKD {
         const urlAdvanced = `https://openpgpkey.${domain}/.well-known/openpgpkey/${domain}/hu/${localPartBase32}?l=${localPartEscaped}`;
         const urlDirect = `https://${domain}/.well-known/openpgpkey/hu/${localPartBase32}?l=${localPartEscaped}`;
 
+        // A fresh signal per call: AbortSignal.timeout()'s (or the manual
+        // AbortController fallback's) clock starts at creation, so reusing
+        // one instance across both fetches would leave the direct-URL
+        // fallback with whatever budget the advanced lookup didn't use
+        // (zero, if the advanced call is what timed out) instead of its own
+        // full 10s.
+        const fetchOptions = () => fetchTimeoutOptions(10000);
+
         let response;
         try {
-            response = await fetch(urlAdvanced);
+            response = await fetch(urlAdvanced, fetchOptions());
             if (response.status !== 200) {
                 throw new Error('Advanced WKD lookup failed: ' + response.statusText);
             }
         } catch (err) {
-            response = await fetch(urlDirect);
+            response = await fetch(urlDirect, fetchOptions());
             if (response.status !== 200) {
                 throw new Error('Direct WKD lookup failed: ' + response.statusText);
             }

@@ -18,9 +18,11 @@ vi.mock('../web/js/pgp/keyring.js', () => ({
 // constructor"). Vitest's pre-4.1.11 mocker didn't enforce this, silently
 // masking the mismatch; a plain `function` is used here instead so it stays
 // correct regardless of the mocker's own strictness.
-vi.mock('../web/js/wkd.js', () => {
+vi.mock('../web/js/wkd.js', async (importOriginal) => {
+  const actual = await importOriginal();
   const lookup = vi.fn();
   return {
+    ...actual, // keep the real fetchTimeoutOptions() -- fetchFromVKS (key-discovery.js) imports it directly from this module
     default: vi.fn(function MockWKD() { return { lookup }; }),
     __lookup: lookup, // exposed so tests can configure/inspect the shared mock
   };
@@ -152,7 +154,10 @@ describe('fetchFromVKS (real implementation, mocked fetch)', () => {
 
     const result = await keyDiscovery.fetchFromVKS('alice@example.com');
 
-    expect(global.fetch).toHaveBeenCalledWith('https://keys.openpgp.org/vks/v1/by-email/alice%40example.com');
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://keys.openpgp.org/vks/v1/by-email/alice%40example.com',
+      { signal: expect.any(AbortSignal) },
+    );
     expect(result.armoredKey).toBe(alice.publicKey);
     expect(result.key).toBeTruthy();
   });
@@ -165,5 +170,14 @@ describe('fetchFromVKS (real implementation, mocked fetch)', () => {
   it('returns null when the response body is not a PGP key', async () => {
     global.fetch = vi.fn().mockResolvedValue({ status: 200, text: async () => 'not a key' });
     expect(await keyDiscovery.fetchFromVKS('nobody@example.com')).toBeNull();
+  });
+
+  it('passes an AbortSignal to fetch so a hung request cannot hang forever', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ status: 200, text: async () => alice.publicKey });
+
+    await keyDiscovery.fetchFromVKS('alice@example.com');
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch.mock.calls[0][1]).toEqual({ signal: expect.any(AbortSignal) });
   });
 });

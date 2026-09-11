@@ -45,7 +45,7 @@ import {
   base64ToUint8Array, uint8ArrayToBase64, stripPgpExtension,
   detectPgpContent,
 } from './js/pgp/pgp-core.js';
-import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault } from './js/pgp/key-storage.js';
+import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault, getAutoEncryptDefault, getAutoSendDefault } from './js/pgp/key-storage.js';
 import {
   cacheSessionKey, getSessionKey, clearSessionKey,
   getSessionEmail, getSessionShortId, onSessionCleared,
@@ -59,7 +59,7 @@ import {
   armReplyHandoffListener, stripPgpArmorBlock, pickSpliceMarker,
 } from './js/pgp/reply-handoff-runtime-core.js';
 
-export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleEncrypt, handleDecrypt, promptPassphrase as promptPassphraseForTest };
+export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleEncrypt, handleDecrypt, promptPassphrase as promptPassphraseForTest, maybeAutoEncrypt as maybeAutoEncryptForTest };
 
 // ── Session status ────────────────────────────────────────────────────────────
 
@@ -132,6 +132,26 @@ let _has110 = false;
  */
 let _has114 = false;
 
+/**
+ * Guards the auto-encrypt cascade so it can only ever fire once per pane
+ * session — set true the instant maybeAutoEncrypt() is invoked, before any
+ * async work, so a second call (there is none today, but this makes the
+ * invariant explicit and test-verifiable) can never re-run it.
+ * @type {boolean}
+ */
+let _autoEncryptFired = false;
+
+/**
+ * True while handleEncrypt() is actively running, from ANY trigger (a
+ * manual click on btn-encrypt, or the auto-encrypt cascade). Prevents two
+ * concurrent handleEncrypt() calls -- e.g. the user manually clicking
+ * Encrypt during the window between handleAutoEncrypt()'s own pre-check and
+ * its call into handleEncrypt() -- which would otherwise let two invocations
+ * race over the same module-level recipient/attachment state at once.
+ * @type {boolean}
+ */
+let _encryptInFlight = false;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function el(id) { return document.getElementById(id); }
@@ -188,6 +208,11 @@ async function loadRecipients() {
   const all = [...(toRaw || []), ...(ccRaw || [])];
 
   if (all.length === 0) {
+    // Reset rather than leaving whatever was resolved last time -- a caller
+    // that only checks "does everything currently in _recipientResults have
+    // a key" must never see a stale, no-longer-current recipient list as
+    // valid just because this branch didn't touch it.
+    _recipientResults = [];
     el('recipients-loading').classList.add('pgp-hidden');
     el('recipients-empty').classList.remove('pgp-hidden');
     updateEncryptButton();
@@ -453,7 +478,23 @@ function promptPassphrase(message = 'Your private key passphrase is required to 
 
 // ── Core encrypt flow ─────────────────────────────────────────────────────────
 
+/**
+ * @returns {Promise<boolean>} true only if THIS invocation actually
+ *   encrypted the message successfully -- never inferred by a caller from
+ *   ambient UI state (e.g. the status bar's CSS class), which could reflect
+ *   a completely different invocation (see the in-flight guard below).
+ */
 async function handleEncrypt() {
+  // Guard against two concurrent runs -- e.g. a manual click landing during
+  // the gap between handleAutoEncrypt()'s own pre-check and its call into
+  // this function, or a rapid double-click before btn-encrypt disables.
+  // Neither trigger's status/UI updates run if this one no-ops -- and,
+  // critically, this invocation reports it did NOT succeed, since it did
+  // nothing; a caller must never infer success from some *other*
+  // invocation's status-bar write that happens to still be visible.
+  if (_encryptInFlight) return false;
+  _encryptInFlight = true;
+
   clearStatus();
   const btn = el('btn-encrypt');
   const spinner = el('encrypt-spinner');
@@ -469,7 +510,13 @@ async function handleEncrypt() {
     //     recipient list.
     showStatus('Checking recipients…', 'info');
     await loadRecipients();
-    if (!_recipientResults.every(r => !!r.key)) {
+    // An empty array vacuously passes .every(...) — explicitly require at
+    // least one recipient too, so a message whose To/Cc emptied out between
+    // the Encrypt click and this recheck (or during handleAutoEncrypt()'s
+    // own pre-check window) can't silently proceed to encrypt against no
+    // one but the sender/company key. updateEncryptButton() already treats
+    // "no recipients" as not-ready for the same reason; this mirrors that.
+    if (_recipientResults.length === 0 || !_recipientResults.every(r => !!r.key)) {
       throw new Error('Not all recipients have a resolved key yet — review the recipient list and try again.');
     }
 
@@ -541,7 +588,7 @@ async function handleEncrypt() {
       showStatus('Message appears to already be PGP-encrypted.', 'warning');
       btn.disabled = false;
       spinner.classList.add('pgp-hidden');
-      return;
+      return false;
     }
 
     // Warn if the message body contains inline images (e.g. embedded images).
@@ -595,6 +642,7 @@ async function handleEncrypt() {
     }
 
     showStatus('✓ Message encrypted. Click Send when ready.', 'success');
+    return true;
 
   } catch (e) {
     if (e.message === 'Cancelled by user.') {
@@ -603,6 +651,7 @@ async function handleEncrypt() {
       showStatus(`Encryption failed: ${e.message}`, 'error');
       console.error(e);
     }
+    return false;
   } finally {
     spinner.classList.add('pgp-hidden');
     try {
@@ -611,7 +660,159 @@ async function handleEncrypt() {
       console.error('refreshComposeButtons failed', e);
     }
     btn.disabled = false;
+    _encryptInFlight = false;
   }
+}
+
+// ── Auto-encrypt / auto-send ───────────────────────────────────────────────────
+
+/**
+ * Merges a fresh loadRecipients() result with the recipient list as it stood
+ * immediately before that poll, preserving any recipient's key that existed
+ * before the poll if the fresh pass has none for that same email. Exported
+ * for testing only.
+ *
+ * Why this is needed: resolveRecipients() (the local→WKD→VKS chain) has no
+ * way to know about a key the user just pasted via the recipient list's own
+ * "paste key" action (wireRecipientListEvents' btn-paste-key-confirm
+ * handler) — that key lives only in the in-memory _recipientResults array
+ * until the user explicitly saves it to the keyring. Without this merge, the
+ * auto-encrypt wait loop's own periodic loadRecipients() calls would
+ * silently discard a pasted key the moment the next poll ran, forcing the
+ * user to re-paste it (or the loop to give up entirely, believing no
+ * progress was made).
+ *
+ * @param {Array<{email:string, key:openpgp.Key|null}>} freshResults
+ * @param {Array<{email:string, key:openpgp.Key|null}>} priorResults
+ * @returns {Array<{email:string, key:openpgp.Key|null}>}
+ */
+export function mergePreservingManuallyResolvedKeys(freshResults, priorResults) {
+  return freshResults.map(fresh => {
+    if (fresh.key) return fresh;
+    const priorMatch = priorResults.find(p => p.email === fresh.email);
+    return priorMatch?.key ? priorMatch : fresh;
+  });
+}
+
+/**
+ * Fires once, right after the compose pane loads, if the user's
+ * auto-encrypt preference is on. Calls loadRecipients() itself as its own
+ * first step rather than assuming Office.onReady's own startup call already
+ * populated _recipientResults — this makes the function self-contained and
+ * directly callable in isolation (including from a test), at the cost of a
+ * second, redundant recipient/key-resolution pass immediately after
+ * Office.onReady's own startup one. This is the same accepted tradeoff
+ * handleAutoEncrypt() below makes with loadAttachments()/
+ * reconcileInlineAttachments() — a small, harmless duplication in exchange
+ * for not having to reach into or depend on another function's completed
+ * side effects.
+ *
+ * After that first load, waits/retries every 2 seconds as long as each pass
+ * makes forward progress (a new recipient appears, or a previously-keyless
+ * recipient now has one), and gives up the moment a pass produces the exact
+ * same recipient/key-found snapshot as the previous pass. No arbitrary
+ * invented timeout: because loadRecipients() fully awaits both Outlook's
+ * recipient-resolution poll and the complete key-discovery chain before
+ * returning, "no change since last pass" reliably means every
+ * currently-listed recipient's lookup has already run to completion.
+ */
+async function maybeAutoEncrypt() {
+  if (_autoEncryptFired || !getAutoEncryptDefault() || !hasKeyPair()) return;
+  _autoEncryptFired = true;
+
+  await loadRecipients();
+  if (_recipientResults.length === 0) return; // nothing to encrypt to; leave as manual
+
+  let previousSnapshot = null;
+  while (true) {
+    if (_recipientResults.length > 0 && _recipientResults.every(r => !!r.key)) {
+      await handleAutoEncrypt();
+      return;
+    }
+
+    const snapshot = _recipientResults.map(r => `${r.email}:${!!r.key}`).join(',');
+    if (snapshot === previousSnapshot) {
+      showStatus("Auto-encrypt didn't complete — not all recipients have a resolved key.", 'warning');
+      return;
+    }
+    previousSnapshot = snapshot;
+
+    showStatus('Waiting for all recipients to resolve — auto-encrypt will run once ready…', 'info');
+    await new Promise(r => setTimeout(r, 2000));
+
+    // loadRecipients() unconditionally overwrites _recipientResults with a
+    // fresh discovery pass -- preserve any recipient that already had a key
+    // before this poll (e.g. one the user just pasted via the recipient
+    // list's own "paste key" action, held only in this in-memory array
+    // until explicitly saved to the keyring -- see wireRecipientListEvents'
+    // btn-paste-key-confirm handler) if the fresh pass came back empty for
+    // that same recipient. resolveRecipients() has no way to know about a
+    // key the user pasted but hasn't saved yet.
+    const beforePoll = _recipientResults;
+    await loadRecipients();
+    _recipientResults = mergePreservingManuallyResolvedKeys(_recipientResults, beforePoll);
+  }
+}
+
+/**
+ * Pre-checks the two interactive decision points inside handleEncrypt() —
+ * inline attachments and the attachment-removal confirmation on Mailbox <1.8
+ * hosts — and aborts (leaving the message for manual encryption, where the
+ * user will see and can act on the same modal themselves) if either would be
+ * needed. Signing is the one exception: if a passphrase prompt is needed,
+ * handleEncrypt() shows it automatically, same as it would for a manual
+ * click. handleEncrypt() itself is not modified; it redundantly re-runs
+ * loadAttachments()/reconcileInlineAttachments() as part of its own existing
+ * steps, which is a deliberate, accepted small inefficiency (both are
+ * idempotent) in exchange for making zero changes to that already-tested
+ * function.
+ */
+async function handleAutoEncrypt() {
+  await loadAttachments();
+  const bodyHtml = await getBodyAsync(Office.CoercionType.Html);
+  reconcileInlineAttachments(bodyHtml);
+  if (_inlineAttachments.length > 0) {
+    showStatus('Auto-encrypt skipped — message contains inline images that need your attention.', 'warning');
+    return;
+  }
+  if (_attachments.length > 0 && !_has18) {
+    showStatus("Auto-encrypt skipped — this Outlook version can't encrypt attachments; review before sending.", 'warning');
+    return;
+  }
+
+  // Gate on handleEncrypt()'s own return value, not on ambient status-bar
+  // state (e.g. classList.contains('pgp-alert--success')) -- if this call
+  // is skipped by the in-flight guard because a manual click already owns
+  // handleEncrypt() at this moment, the status bar could still be showing a
+  // stale success from a completely unrelated invocation. A false/undefined
+  // return here means THIS invocation performed no encryption, regardless
+  // of what the status bar currently displays.
+  const encrypted = await handleEncrypt();
+
+  if (encrypted) {
+    await maybeAutoSend();
+  }
+}
+
+/**
+ * Fires automatically once handleAutoEncrypt() confirms a successful
+ * encrypt. Only runs when this host supports Mailbox 1.15 (required by
+ * sendAsync) and the user's auto-send preference is on — both re-checked
+ * locally at call time, never trusted from a value cached at pane load,
+ * since roaming settings sync across devices and a preference enabled on a
+ * 1.15-capable host could be read back on one that isn't. No status message
+ * is shown before or during sending, and none is relied upon after — per
+ * Microsoft's own sendAsync docs, code meant to run on success isn't
+ * guaranteed to execute once the item is sent.
+ */
+async function maybeAutoSend() {
+  const has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
+  if (!has115 || !getAutoSendDefault()) return;
+  Office.context.mailbox.item.sendAsync((asyncResult) => {
+    if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+      showStatus(`Automatic send failed: ${asyncResult.error.message}`, 'error');
+    }
+  });
 }
 
 async function handleDecrypt() {
@@ -1157,6 +1358,11 @@ Office.onReady(async () => {
   // Apply the user's stored sign-by-default preference.
   // The user can flip the toggle for any individual message.
   el('sign-toggle').checked = getSignDefault();
+
+  // Fire-and-forget: inert unless the auto-encrypt preference is on and all
+  // recipients already have (or come to have) a resolved key. See its own
+  // docblock for the full wait/retry/abort behavior.
+  maybeAutoEncrypt().catch((e) => console.error('Auto-encrypt failed', e));
 
   // Reflect initial session cache state (user may have just come from KeyManagement)
   updateSessionStatus();
