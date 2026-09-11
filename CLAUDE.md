@@ -99,6 +99,8 @@ Everything persists in **Office roaming settings** (32 KB total cap, syncs acros
 | `pgp_keyring` | `{ "email": "armored public key", … }` — contacts' keys |
 | `pgp_org_override` | Manual org config override |
 | `pgp_sign_default` | Boolean — user's default for the sign-messages toggle |
+| `pgp_auto_encrypt` | Boolean — auto-encrypt once all recipients have a resolved key (defaults to false) |
+| `pgp_auto_send` | Boolean — auto-send once auto-encryption succeeds (defaults to false; forced false whenever `pgp_auto_encrypt` is false) |
 
 Storage budget is tight: ~8–10 ECC contact keys fit comfortably. Call `estimateStorageUsage()` to warn users before hitting the limit. RSA-4096 keys are ~2–3× larger than ECC keys.
 

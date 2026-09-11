@@ -38,6 +38,7 @@ software, plugins, or IT-managed infrastructure.
 |-------------|----------------|
 | Microsoft 365 / Outlook | Any current subscription (web, Windows, Mac) |
 | Office JavaScript API | Mailbox **1.8** (required for compose-side attachment access) |
+| Auto-send | Mailbox **1.15** (older hosts can still use auto-*encrypt*, but the auto-*send* toggle is hidden and its stored preference is left untouched) |
 | Browser / WebView2 | Edge WebView2 or any modern browser (Chrome 90+, Firefox 90+, Safari 15+) |
 
 > **Outlook 2019 and earlier (perpetual license):** The add-in will load in
@@ -378,6 +379,14 @@ upload the XML.
 **Enterprise (centralised deployment):**
 Microsoft 365 Admin Center → Settings → Integrated Apps → Upload custom app.
 Or use the `New-OrganizationAddIn` PowerShell cmdlet.
+
+> **Admin note — auto-send permission escalation:** the auto-send feature
+> requires the manifest's `ReadWriteMailbox` permission (a step up from
+> `ReadWriteItem`), which Outlook shows a distinct, more visible consent
+> description for. Re-deploying a manifest update that bumps this permission
+> should be expected to require fresh admin re-approval in each tenant before
+> auto-send will work anywhere, independent of when the manifest itself is
+> re-uploaded.
 
 That wizard also accepts a **link to a manifest file** instead of a manual
 upload. This repository's CI publishes a rolling GitHub Release, tagged
