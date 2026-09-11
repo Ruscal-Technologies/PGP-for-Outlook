@@ -43,6 +43,7 @@ import {
   getSignDefault, saveSignDefault,
   getAutoEncryptDefault,
   getAutoSendDefault, saveAutoEncryptAndSendDefaults,
+  resetAllAcknowledgedWarnings,
 } from './js/pgp/key-storage.js';
 import {
   addContactKey, removeContactKey, listContactKeys, getKeyringStorageInfo,
@@ -848,6 +849,15 @@ async function handleSavePrefs() {
   showStatus('prefs-save-status', 'Preferences saved.', 'success');
 }
 
+/**
+ * Clears every one-time "acknowledged warning" (e.g. Encrypt & Send's
+ * confirmation) so each is shown again on its next trigger.
+ */
+async function handleResetWarnings() {
+  await resetAllAcknowledgedWarnings();
+  showStatus('prefs-save-status', 'All one-time warnings will be shown again.', 'success');
+}
+
 // ── XSS-safe HTML escaping ────────────────────────────────────────────────────
 
 function escHtml(str) {
@@ -954,6 +964,7 @@ Office.onReady(async () => {
   // Personal preferences
   el('btn-save-prefs').addEventListener('click', handleSavePrefs);
   el('pref-auto-encrypt').addEventListener('change', updateAutoSendVisibility);
+  el('btn-reset-warnings').addEventListener('click', handleResetWarnings);
 
   // Initial render
   await refreshMyKeyPanel();

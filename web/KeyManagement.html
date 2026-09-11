@@ -304,51 +304,6 @@
   </section>
 
   <!-- ═══════════════════════════════════════════════════════
-       ORGANIZATION SETTINGS
-  ══════════════════════════════════════════════════════════ -->
-  <section class="pgp-section" id="section-org">
-    <div class="pgp-section-title">Organization Settings</div>
-    <p style="font-size:12px;color:#605e5c;margin:0 0 10px 0;">
-      These settings are normally loaded automatically from your organization's
-      domain. Use the override below only if auto-discovery fails.
-    </p>
-
-    <div id="org-status" class="pgp-mt-sm"></div>
-
-    <hr class="pgp-divider" />
-
-    <div class="pgp-section-title" style="font-size:11px;">Manual Override</div>
-
-    <label class="pgp-toggle" style="margin-bottom:10px;">
-      <input type="checkbox" id="org-key-enabled" />
-      <span class="pgp-toggle__track"></span>
-      <span class="pgp-toggle__label">Include company key on all encrypted messages</span>
-    </label>
-
-    <div class="pgp-field">
-      <label for="org-key-required-toggle">Required (cannot be disabled per-message)</label>
-      <label class="pgp-toggle">
-        <input type="checkbox" id="org-key-required" />
-        <span class="pgp-toggle__track"></span>
-        <span class="pgp-toggle__label">Required</span>
-      </label>
-    </div>
-
-    <div class="pgp-field">
-      <label for="org-key-emails">Company key email(s)</label>
-      <input type="text" id="org-key-emails" placeholder="legal@company.com, security@company.com" />
-      <span class="pgp-field__hint">Comma-separated. These addresses will be looked up via WKD / VKS.</span>
-    </div>
-
-    <div id="org-save-status" class="pgp-hidden pgp-mt-sm"></div>
-
-    <div class="pgp-row pgp-mt-md">
-      <button class="pgp-btn pgp-btn--primary" id="btn-save-org">Save Override</button>
-      <button class="pgp-btn pgp-btn--secondary" id="btn-clear-org">Clear Override</button>
-    </div>
-  </section>
-
-  <!-- ═══════════════════════════════════════════════════════
        PERSONAL PREFERENCES
   ══════════════════════════════════════════════════════════ -->
   <section class="pgp-section" id="section-prefs">
@@ -395,6 +350,56 @@
 
     <div class="pgp-row pgp-mt-md">
       <button class="pgp-btn pgp-btn--primary" id="btn-save-prefs">Save Preferences</button>
+      <button class="pgp-btn pgp-btn--secondary" id="btn-reset-warnings">Reset All Warnings</button>
+    </div>
+    <p style="font-size:11px;color:#605e5c;margin:6px 0 0;">
+      Clears any "don't ask me again" confirmations (e.g. Encrypt &amp; Send's
+      one-time warning), so they're shown again next time.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════
+       ORGANIZATION SETTINGS
+  ══════════════════════════════════════════════════════════ -->
+  <section class="pgp-section" id="section-org">
+    <div class="pgp-section-title">Organization Settings</div>
+    <p style="font-size:12px;color:#605e5c;margin:0 0 10px 0;">
+      These settings are normally loaded automatically from your organization's
+      domain. Use the override below only if auto-discovery fails.
+    </p>
+
+    <div id="org-status" class="pgp-mt-sm"></div>
+
+    <hr class="pgp-divider" />
+
+    <div class="pgp-section-title" style="font-size:11px;">Manual Override</div>
+
+    <label class="pgp-toggle" style="margin-bottom:10px;">
+      <input type="checkbox" id="org-key-enabled" />
+      <span class="pgp-toggle__track"></span>
+      <span class="pgp-toggle__label">Include company key on all encrypted messages</span>
+    </label>
+
+    <div class="pgp-field">
+      <label for="org-key-required-toggle">Required (cannot be disabled per-message)</label>
+      <label class="pgp-toggle">
+        <input type="checkbox" id="org-key-required" />
+        <span class="pgp-toggle__track"></span>
+        <span class="pgp-toggle__label">Required</span>
+      </label>
+    </div>
+
+    <div class="pgp-field">
+      <label for="org-key-emails">Company key email(s)</label>
+      <input type="text" id="org-key-emails" placeholder="legal@company.com, security@company.com" />
+      <span class="pgp-field__hint">Comma-separated. These addresses will be looked up via WKD / VKS.</span>
+    </div>
+
+    <div id="org-save-status" class="pgp-hidden pgp-mt-sm"></div>
+
+    <div class="pgp-row pgp-mt-md">
+      <button class="pgp-btn pgp-btn--primary" id="btn-save-org">Save Override</button>
+      <button class="pgp-btn pgp-btn--secondary" id="btn-clear-org">Clear Override</button>
     </div>
   </section>
 
