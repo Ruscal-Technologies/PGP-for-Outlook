@@ -510,7 +510,13 @@ async function handleEncrypt() {
     //     recipient list.
     showStatus('Checking recipients…', 'info');
     await loadRecipients();
-    if (!_recipientResults.every(r => !!r.key)) {
+    // An empty array vacuously passes .every(...) — explicitly require at
+    // least one recipient too, so a message whose To/Cc emptied out between
+    // the Encrypt click and this recheck (or during handleAutoEncrypt()'s
+    // own pre-check window) can't silently proceed to encrypt against no
+    // one but the sender/company key. updateEncryptButton() already treats
+    // "no recipients" as not-ready for the same reason; this mirrors that.
+    if (_recipientResults.length === 0 || !_recipientResults.every(r => !!r.key)) {
       throw new Error('Not all recipients have a resolved key yet — review the recipient list and try again.');
     }
 
@@ -661,6 +667,34 @@ async function handleEncrypt() {
 // ── Auto-encrypt / auto-send ───────────────────────────────────────────────────
 
 /**
+ * Merges a fresh loadRecipients() result with the recipient list as it stood
+ * immediately before that poll, preserving any recipient's key that existed
+ * before the poll if the fresh pass has none for that same email. Exported
+ * for testing only.
+ *
+ * Why this is needed: resolveRecipients() (the local→WKD→VKS chain) has no
+ * way to know about a key the user just pasted via the recipient list's own
+ * "paste key" action (wireRecipientListEvents' btn-paste-key-confirm
+ * handler) — that key lives only in the in-memory _recipientResults array
+ * until the user explicitly saves it to the keyring. Without this merge, the
+ * auto-encrypt wait loop's own periodic loadRecipients() calls would
+ * silently discard a pasted key the moment the next poll ran, forcing the
+ * user to re-paste it (or the loop to give up entirely, believing no
+ * progress was made).
+ *
+ * @param {Array<{email:string, key:openpgp.Key|null}>} freshResults
+ * @param {Array<{email:string, key:openpgp.Key|null}>} priorResults
+ * @returns {Array<{email:string, key:openpgp.Key|null}>}
+ */
+export function mergePreservingManuallyResolvedKeys(freshResults, priorResults) {
+  return freshResults.map(fresh => {
+    if (fresh.key) return fresh;
+    const priorMatch = priorResults.find(p => p.email === fresh.email);
+    return priorMatch?.key ? priorMatch : fresh;
+  });
+}
+
+/**
  * Fires once, right after the compose pane loads, if the user's
  * auto-encrypt preference is on. Calls loadRecipients() itself as its own
  * first step rather than assuming Office.onReady's own startup call already
@@ -705,7 +739,18 @@ async function maybeAutoEncrypt() {
 
     showStatus('Waiting for all recipients to resolve — auto-encrypt will run once ready…', 'info');
     await new Promise(r => setTimeout(r, 2000));
+
+    // loadRecipients() unconditionally overwrites _recipientResults with a
+    // fresh discovery pass -- preserve any recipient that already had a key
+    // before this poll (e.g. one the user just pasted via the recipient
+    // list's own "paste key" action, held only in this in-memory array
+    // until explicitly saved to the keyring -- see wireRecipientListEvents'
+    // btn-paste-key-confirm handler) if the fresh pass came back empty for
+    // that same recipient. resolveRecipients() has no way to know about a
+    // key the user pasted but hasn't saved yet.
+    const beforePoll = _recipientResults;
     await loadRecipients();
+    _recipientResults = mergePreservingManuallyResolvedKeys(_recipientResults, beforePoll);
   }
 }
 

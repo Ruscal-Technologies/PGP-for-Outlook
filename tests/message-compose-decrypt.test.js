@@ -479,6 +479,51 @@ describe('handleEncrypt — button visibility', () => {
     // OTHER run -- currently shows.
     expect(secondResult).toBe(false);
   });
+
+  it('refuses to encrypt when there are no recipients at all, even though an empty array vacuously passes .every()', async () => {
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [], // no To/Cc recipients whatsoever
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { handleEncrypt } = await import('../web/MessageCompose.js');
+    const result = await handleEncrypt();
+
+    expect(result).toBe(false);
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toContain('Not all recipients have a resolved key yet');
+  });
+});
+
+describe('mergePreservingManuallyResolvedKeys', () => {
+  it('preserves a prior key when the fresh pass has none for the same email', async () => {
+    const { mergePreservingManuallyResolvedKeys } = await import('../web/MessageCompose.js');
+    const priorResults = [
+      { email: 'a@example.com', key: { fake: 'pasted-key' }, status: 'found_local', source: 'Pasted', armoredKey: 'ARMOR' },
+    ];
+    const freshResults = [
+      { email: 'a@example.com', key: null, status: 'not_found', source: null, armoredKey: null },
+    ];
+
+    expect(mergePreservingManuallyResolvedKeys(freshResults, priorResults)).toEqual(priorResults);
+  });
+
+  it('uses the fresh result when it already has its own key', async () => {
+    const { mergePreservingManuallyResolvedKeys } = await import('../web/MessageCompose.js');
+    const priorResults = [{ email: 'a@example.com', key: { fake: 'old-key' }, status: 'found_local', source: 'Pasted', armoredKey: 'OLD' }];
+    const freshResults = [{ email: 'a@example.com', key: { fake: 'new-key' }, status: 'found', source: 'WKD', armoredKey: 'NEW' }];
+
+    expect(mergePreservingManuallyResolvedKeys(freshResults, priorResults)).toEqual(freshResults);
+  });
+
+  it('uses the fresh result (still keyless) when there is no matching prior entry to preserve', async () => {
+    const { mergePreservingManuallyResolvedKeys } = await import('../web/MessageCompose.js');
+    const priorResults = [];
+    const freshResults = [{ email: 'new-recipient@example.com', key: null, status: 'not_found', source: null, armoredKey: null }];
+
+    expect(mergePreservingManuallyResolvedKeys(freshResults, priorResults)).toEqual(freshResults);
+  });
 });
 
 describe('auto-encrypt on pane load', () => {
