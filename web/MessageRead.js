@@ -498,7 +498,7 @@ async function detectAndRenderBody() {
   if (pgpType === 'public-key') {
     result.innerHTML = `<div class="pgp-alert pgp-alert--warning">
       This message contains a <strong>PGP public key</strong>.
-      You can copy it and import it via <em>Manage Keys</em>.
+      You can copy it and import it via <em>Manage PGP</em>.
     </div>`;
   }
 
@@ -985,7 +985,7 @@ async function handleVerifySignedBody(signedBody) {
       const noSenderDueToVersion = !senderEmail && !_has17;
       const hint = noSenderDueToVersion
         ? 'Sender information is unavailable on this Outlook version. Upgrade to Outlook 2021 to verify signatures.'
-        : `No public key found for <strong>${escHtml(senderEmail || 'sender')}</strong>. Import their key via Manage Keys to verify future messages.`;
+        : `No public key found for <strong>${escHtml(senderEmail || 'sender')}</strong>. Import their key via Manage PGP to verify future messages.`;
       statusEl.innerHTML = `<div class="pgp-alert pgp-alert--warning">${hint}</div>`;
       return;
     }

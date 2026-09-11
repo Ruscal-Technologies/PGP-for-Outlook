@@ -150,7 +150,7 @@ export async function clearOrgOverride() {
 /**
  * Return the user's stored sign-by-default preference.
  * When not set, returns false (signing off by default).
- * Users can change this in Manage Keys → Personal Preferences and
+ * Users can change this in Manage PGP → Personal Preferences and
  * override it per-message using the sign toggle in the compose pane.
  *
  * @returns {boolean}
