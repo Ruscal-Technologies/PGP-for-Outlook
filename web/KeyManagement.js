@@ -41,8 +41,8 @@ import {
   saveKeyPair, clearKeyPair,
   getOrgOverride, saveOrgOverride, clearOrgOverride,
   getSignDefault, saveSignDefault,
-  getAutoEncryptDefault, saveAutoEncryptDefault,
-  getAutoSendDefault, saveAutoSendDefault,
+  getAutoEncryptDefault,
+  getAutoSendDefault, saveAutoEncryptAndSendDefaults,
 } from './js/pgp/key-storage.js';
 import {
   addContactKey, removeContactKey, listContactKeys, getKeyringStorageInfo,
@@ -826,28 +826,24 @@ async function handleSavePrefs() {
 
   const autoEncryptDefault = el('pref-auto-encrypt').checked;
 
-  // saveAutoEncryptDefault(false) unconditionally force-clears pgp_auto_send
-  // as one of its own side effects (see key-storage.js) -- correct and
-  // intended when the user explicitly turns auto-encrypt off on a host that
-  // can actually show the auto-send toggle, but not otherwise: on a
-  // pre-1.15 host this pane can't render that toggle at all, so saving here
-  // has nothing to do with auto-send and must not be able to wipe a true
-  // value synced in from a different, capable device. Capture it before the
-  // write so it can be restored below if this host can't show it.
-  const priorAutoSend = getAutoSendDefault();
-  await saveAutoEncryptDefault(autoEncryptDefault);
-
-  // Only persist auto-send's checked state on hosts that can actually show/
-  // mean it (Mailbox 1.15+). On older hosts, restore whatever was stored
-  // before this save — undoing saveAutoEncryptDefault()'s own force-off
-  // above if it just fired — rather than leaving today's false write in
-  // place, since this pane can't render the toggle here at all.
-  if (_has115) {
-    const autoSendDefault = autoEncryptDefault && el('pref-auto-send').checked;
-    await saveAutoSendDefault(autoSendDefault);
-  } else {
-    await saveAutoSendDefault(priorAutoSend);
-  }
+  // Compute the FINAL desired auto-send value up front, then persist both
+  // preferences in one atomic write (saveAutoEncryptAndSendDefaults) rather
+  // than two separate saveAsync() round-trips. Two separate writes would be
+  // unsafe here: saveAutoEncryptDefault(false) force-clears auto-send as one
+  // of its own side effects (see key-storage.js) -- correct and intended
+  // when the user explicitly turns auto-encrypt off on a host that can
+  // actually show the auto-send toggle, but not otherwise. On a pre-1.15
+  // host this pane can't render that toggle at all, so saving here has
+  // nothing to do with auto-send and must preserve whatever was already
+  // stored (e.g. a true value synced in from a different, capable device) —
+  // but if that restoration were a SECOND write and it failed (a real,
+  // already-handled failure mode; see saveAsync()'s docs), the FIRST
+  // write's force-off would already be persisted remotely, permanently
+  // losing the value this code means to preserve.
+  const autoSendDefault = _has115
+    ? (autoEncryptDefault && el('pref-auto-send').checked)
+    : getAutoSendDefault(); // pre-1.15: leave whatever is already stored untouched
+  await saveAutoEncryptAndSendDefaults(autoEncryptDefault, autoSendDefault);
 
   showStatus('prefs-save-status', 'Preferences saved.', 'success');
 }

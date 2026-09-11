@@ -215,6 +215,29 @@ export async function saveAutoSendDefault(value) {
   await saveAsync();
 }
 
+/**
+ * Persist both auto-encrypt and auto-send preferences in a single atomic
+ * write (one saveAsync() call), rather than two separate ones. Used by the
+ * Manage PGP preferences save flow specifically because saveAutoEncryptDefault
+ * on its own force-clears auto-send whenever `autoEncryptValue` is false
+ * (see above) — a caller that needs the *final* auto-send value to be
+ * something other than that force-off result (e.g. restoring the value that
+ * was stored before this save, on a host that can't even show the auto-send
+ * toggle to let the user knowingly change it) must not go through two
+ * separate saveAsync() round-trips to get there: if the second one failed
+ * (a real, already-handled failure mode — see saveAsync()'s docs above),
+ * the first save's force-off would already be persisted remotely, silently
+ * losing the value this call means to preserve.
+ *
+ * @param {boolean} autoEncryptValue
+ * @param {boolean} autoSendValue
+ */
+export async function saveAutoEncryptAndSendDefaults(autoEncryptValue, autoSendValue) {
+  settings().set(KEYS.AUTO_ENCRYPT, !!autoEncryptValue);
+  settings().set(KEYS.AUTO_SEND, !!autoSendValue);
+  await saveAsync();
+}
+
 // ── Storage diagnostics ───────────────────────────────────────────────────────
 
 /**

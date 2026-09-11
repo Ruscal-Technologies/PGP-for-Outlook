@@ -167,6 +167,49 @@ describe('auto-send default preference', () => {
   });
 });
 
+describe('saveAutoEncryptAndSendDefaults (atomic combined write)', () => {
+  it('persists both values in a single saveAsync() call', async () => {
+    const saveAsyncSpy = vi.fn((callback) => callback({ status: 'succeeded' }));
+    global.Office.context.roamingSettings.saveAsync = saveAsyncSpy;
+
+    await keyStorage.saveAutoEncryptAndSendDefaults(true, true);
+
+    expect(saveAsyncSpy).toHaveBeenCalledTimes(1);
+    expect(keyStorage.getAutoEncryptDefault()).toBe(true);
+    expect(keyStorage.getAutoSendDefault()).toBe(true);
+  });
+
+  it('round-trips every true/false combination', async () => {
+    await keyStorage.saveAutoEncryptAndSendDefaults(false, true);
+    expect(keyStorage.getAutoEncryptDefault()).toBe(false);
+    expect(keyStorage.getAutoSendDefault()).toBe(true);
+
+    await keyStorage.saveAutoEncryptAndSendDefaults(true, false);
+    expect(keyStorage.getAutoEncryptDefault()).toBe(true);
+    expect(keyStorage.getAutoSendDefault()).toBe(false);
+  });
+
+  it('does NOT apply saveAutoEncryptDefault-style force-off -- the caller controls both values explicitly', async () => {
+    // This is the entire reason this function exists: unlike
+    // saveAutoEncryptDefault(false) (which always force-clears auto-send),
+    // this lets a caller persist auto-encrypt:false while KEEPING
+    // auto-send:true in one write -- e.g. to preserve a value synced from a
+    // different device on a host that can't even show the auto-send toggle.
+    await keyStorage.saveAutoEncryptAndSendDefaults(false, true);
+    expect(keyStorage.getAutoEncryptDefault()).toBe(false);
+    expect(keyStorage.getAutoSendDefault()).toBe(true);
+  });
+
+  it('rejects if saveAsync reports Failed, matching every other write function in this module', async () => {
+    global.Office.context.roamingSettings.saveAsync = (callback) => {
+      callback({ status: 'failed', error: { message: 'Simulated roaming settings save failure' } });
+    };
+    await expect(
+      keyStorage.saveAutoEncryptAndSendDefaults(true, true)
+    ).rejects.toThrow('Simulated roaming settings save failure');
+  });
+});
+
 describe('estimateStorageUsage', () => {
   it('grows when keys are stored', async () => {
     const before = keyStorage.estimateStorageUsage();
