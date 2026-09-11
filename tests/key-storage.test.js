@@ -143,9 +143,13 @@ describe('auto-encrypt default preference', () => {
   });
 
   it('does not touch auto-send when auto-encrypt is turned on', async () => {
-    await keyStorage.saveAutoSendDefault(false);
+    // Seed auto-send TRUE first: if saveAutoEncryptDefault(true) ever force-
+    // cleared auto-send unconditionally (rather than only on `false`), this
+    // is the assertion that would catch it -- with auto-send starting false,
+    // that same bug would be invisible (false stays false either way).
+    await keyStorage.saveAutoSendDefault(true);
     await keyStorage.saveAutoEncryptDefault(true);
-    expect(keyStorage.getAutoSendDefault()).toBe(false);
+    expect(keyStorage.getAutoSendDefault()).toBe(true);
   });
 });
 

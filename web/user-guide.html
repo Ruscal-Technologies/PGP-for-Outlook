@@ -45,10 +45,12 @@
   <h2>What this add-in does</h2>
   <p>
     It encrypts the body of your email messages (and, on supported versions
-    of Outlook, attachments too) so that only your intended recipients — the
-    people who also have this add-in and a PGP key — can read them. Anyone
-    intercepting the message in transit, or with access to the mail server,
-    sees only unreadable scrambled text.
+    of Outlook, attachments too) using the standard, widely-used OpenPGP
+    format, so that only your intended recipients — anyone holding the
+    matching private key, whether they use this add-in or another compatible
+    PGP program (GnuPG, Thunderbird, Kleopatra, and others all work) — can
+    read them. Anyone intercepting the message in transit, or with access to
+    the mail server, sees only unreadable scrambled text.
   </p>
   <p>
     Subject lines and the To/From/Cc headers are <strong>not</strong>
@@ -168,10 +170,11 @@
   </p>
   <h3>What happens if I send an attachment?</h3>
   <p>
-    On Outlook 2021, Microsoft 365, and Outlook on the web, attachments are
-    encrypted individually alongside the message body. On older versions of
-    Outlook, attachment encryption isn't available — you'll be asked to
-    confirm removing attachments before the message can be encrypted.
+    On Microsoft 365 subscription builds and Outlook on the web, attachments
+    are encrypted individually alongside the message body. On perpetual-license
+    builds (Outlook 2019 and 2021, purchased rather than subscribed to),
+    attachment encryption isn't available — you'll be asked to confirm
+    removing attachments before the message can be encrypted.
   </p>
 
   <p style="margin-top:48px;color:#605e5c;font-size:13px;">
