@@ -733,4 +733,26 @@ describe('auto-send after auto-encrypt', () => {
     expect(statusEl.textContent).toContain('Automatic send failed');
     expect(statusEl.textContent).toContain('blocked by another add-in');
   });
+
+  it('does not call sendAsync when auto-encrypt itself fails', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(true);
+
+    installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockRejectedValue(new Error('boom'));
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(sendAsync).not.toHaveBeenCalled();
+  });
 });
