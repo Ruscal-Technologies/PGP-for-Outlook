@@ -223,7 +223,7 @@
         <bt:String id="readDecryptSuperTipTitle"         DefaultValue="Decrypt PGP Message" />
         <bt:String id="composeEncryptButtonLabel"    DefaultValue="Encrypt" />
         <bt:String id="composeEncryptSuperTipTitle"  DefaultValue="Encrypt PGP Message" />
-        <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage Keys" />
+        <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage PGP" />
         <bt:String id="manageKeysSuperTipTitle"      DefaultValue="PGP Key Management" />
       </bt:ShortStrings>
 
@@ -490,7 +490,7 @@
           <bt:String id="readDecryptSuperTipTitle"         DefaultValue="Decrypt PGP Message" />
           <bt:String id="composeEncryptButtonLabel"    DefaultValue="Encrypt" />
           <bt:String id="composeEncryptSuperTipTitle"  DefaultValue="Encrypt PGP Message" />
-          <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage Keys" />
+          <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage PGP" />
           <bt:String id="manageKeysSuperTipTitle"      DefaultValue="PGP Key Management" />
           <bt:String id="replyHandoffButtonLabel"      DefaultValue="Insert Decrypted Reply" />
           <bt:String id="replyHandoffSuperTipTitle"    DefaultValue="Insert Decrypted Reply" />
