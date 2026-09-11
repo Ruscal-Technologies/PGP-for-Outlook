@@ -718,7 +718,7 @@ async function waitForAllRecipientKeys() {
 
   let previousSnapshot = null;
   while (true) {
-    if (_recipientResults.every(r => !!r.key)) return true;
+    if (_recipientResults.length > 0 && _recipientResults.every(r => !!r.key)) return true;
 
     const snapshot = _recipientResults.map(r => `${r.email}:${!!r.key}`).join(',');
     if (snapshot === previousSnapshot) return false;

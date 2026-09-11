@@ -718,6 +718,61 @@ describe('auto-encrypt on pane load', () => {
     expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
     expect(statusEl.textContent).toContain("can't encrypt attachments");
   });
+
+  it('does not report ready with zero recipients if the recipient list empties out mid-wait', async () => {
+    vi.useFakeTimers();
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(false);
+
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'nokey@example.com' }],
+    });
+
+    // Simulate the recipient being removed from To/Cc entirely partway
+    // through the wait loop: the first loadRecipients() poll (getAsync needs
+    // two consecutive equal-length reads to settle, per getRecipientsAsync())
+    // still sees the recipient; every loadRecipients() poll after that sees
+    // an empty To field -- loadRecipients()'s own "reset _recipientResults
+    // to []" branch (it never calls resolveRecipients() in that branch).
+    let toCallCount = 0;
+    global.Office.context.mailbox.item.to.getAsync = vi.fn((cb) => {
+      toCallCount++;
+      const value = toCallCount <= 2 ? [{ emailAddress: 'nokey@example.com' }] : [];
+      cb({ status: 'succeeded', value });
+    });
+
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients.mockResolvedValueOnce(
+      [{ email: 'nokey@example.com', key: null, status: 'not-found', source: null, armoredKey: null }],
+    );
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    const runPromise = maybeAutoEncryptForTest();
+
+    // Generously advance past: the initial loadRecipients() poll, then two
+    // more 2s wait-loop passes (one that observes the list going empty, one
+    // more so the give-up snapshot comparison -- empty vs empty -- settles).
+    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3000);
+    await runPromise;
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    // With the length > 0 guard dropped, waitForAllRecipientKeys() would see
+    // _recipientResults reset to [] by loadRecipients() and [].every(...)
+    // vacuously report "ready" -- maybeAutoEncrypt() would then proceed into
+    // handleAutoEncrypt()/handleEncrypt(), which re-checks recipients itself
+    // and fails with "Encryption failed: Not all recipients...". With the
+    // guard restored, waitForAllRecipientKeys() never reports ready here, so
+    // handleEncrypt() is never even entered and the status bar never reaches
+    // that failure text.
+    expect(statusEl.textContent).not.toContain('Encryption failed');
+    vi.useRealTimers();
+  });
 });
 
 describe('auto-send after auto-encrypt', () => {
