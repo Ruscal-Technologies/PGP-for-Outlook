@@ -45,7 +45,7 @@ import {
   base64ToUint8Array, uint8ArrayToBase64, stripPgpExtension,
   detectPgpContent,
 } from './js/pgp/pgp-core.js';
-import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault, getAutoEncryptDefault, getAutoSendDefault } from './js/pgp/key-storage.js';
+import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault, getAutoEncryptDefault, getAutoSendDefault, hasAcknowledgedWarning, saveAcknowledgedWarning } from './js/pgp/key-storage.js';
 import {
   cacheSessionKey, getSessionKey, clearSessionKey,
   getSessionEmail, getSessionShortId, onSessionCleared,
@@ -59,7 +59,7 @@ import {
   armReplyHandoffListener, stripPgpArmorBlock, pickSpliceMarker,
 } from './js/pgp/reply-handoff-runtime-core.js';
 
-export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleEncrypt, handleDecrypt, promptPassphrase as promptPassphraseForTest, maybeAutoEncrypt as maybeAutoEncryptForTest };
+export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleEncrypt, handleDecrypt, promptPassphrase as promptPassphraseForTest, maybeAutoEncrypt as maybeAutoEncryptForTest, runForceEncryptAndSend };
 
 // ── Session status ────────────────────────────────────────────────────────────
 
@@ -840,6 +840,81 @@ async function maybeAutoSend() {
   await performSend();
 }
 
+/**
+ * Show the inline "Encrypt and send this message now?" confirmation panel
+ * and resolve once the user picks Confirm (true) or Cancel (false). Uses the
+ * same inline-panel pattern as confirmAttachmentRemoval()/
+ * confirmInlineAttachments() rather than window.confirm(), which is blocked
+ * in sandboxed Office task-pane iframes.
+ */
+function confirmEncryptSend() {
+  return new Promise((resolve) => {
+    const panel = el('panel-encrypt-send-confirm');
+    panel.classList.remove('pgp-hidden');
+
+    function cleanup() {
+      panel.classList.add('pgp-hidden');
+      el('btn-encrypt-send-confirm').removeEventListener('click', onConfirm);
+      el('btn-encrypt-send-cancel').removeEventListener('click', onCancel);
+    }
+    function onConfirm() { cleanup(); resolve(true); }
+    function onCancel()  { cleanup(); resolve(false); }
+
+    el('btn-encrypt-send-confirm').addEventListener('click', onConfirm);
+    el('btn-encrypt-send-cancel').addEventListener('click', onCancel);
+  });
+}
+
+/**
+ * Entry point for the "Encrypt & Send" ribbon button
+ * (MessageCompose.html?mode=encryptSend, see Office.onReady below). Always
+ * encrypts and sends, regardless of the user's stored auto-encrypt/auto-send
+ * preferences:
+ *
+ *  1. Shows the one-time confirmation panel, unless already acknowledged
+ *     (pgp_acknowledged_warnings, see key-storage.js) — confirming it once
+ *     persists that acknowledgment so it never shows again until the user
+ *     resets it via Manage PGP's "Reset All Warnings" button.
+ *  2. Waits for every recipient to have a resolved key, reusing the exact
+ *     same wait/retry/give-up loop as auto-encrypt (waitForAllRecipientKeys()).
+ *  3. Calls handleEncrypt() DIRECTLY — not through handleAutoEncrypt()'s
+ *     pre-check-and-abort wrapper — so its normal interactive prompts
+ *     (the inline-attachment Convert/Continue/Cancel choice, and the
+ *     attachment-removal confirmation on Mailbox <1.8) show normally and the
+ *     flow continues after the user resolves them. This is a deliberate,
+ *     explicit click, unlike the silent background auto-encrypt trigger, so
+ *     prompting is expected here rather than surprising.
+ *  4. Sends unconditionally on a genuine encrypt success, but only if this
+ *     host supports Mailbox 1.15 (required by sendAsync) — checked live,
+ *     same as maybeAutoSend(). On an older host it shows a status explaining
+ *     that automatic sending isn't available and stops there, leaving the
+ *     now-encrypted message for the user to send manually.
+ */
+async function runForceEncryptAndSend() {
+  if (!hasAcknowledgedWarning('encryptSendConfirm')) {
+    const confirmed = await confirmEncryptSend();
+    if (!confirmed) return;
+    await saveAcknowledgedWarning('encryptSendConfirm');
+  }
+
+  const ready = await waitForAllRecipientKeys();
+  if (!ready) {
+    showStatus("Encrypt & Send didn't complete — not all recipients have a resolved key.", 'warning');
+    return;
+  }
+
+  const encrypted = await handleEncrypt();
+  if (!encrypted) return;
+
+  const has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
+  if (!has115) {
+    showStatus("✓ Message encrypted. This version of Outlook doesn't support automatic sending — click Send yourself.", 'warning');
+    return;
+  }
+
+  await performSend();
+}
+
 async function handleDecrypt() {
   clearStatus();
   const btn = el('btn-decrypt');
@@ -1384,10 +1459,25 @@ Office.onReady(async () => {
   // The user can flip the toggle for any individual message.
   el('sign-toggle').checked = getSignDefault();
 
-  // Fire-and-forget: inert unless the auto-encrypt preference is on and all
-  // recipients already have (or come to have) a resolved key. See its own
-  // docblock for the full wait/retry/abort behavior.
-  maybeAutoEncrypt().catch((e) => console.error('Auto-encrypt failed', e));
+  // The "Encrypt & Send" ribbon button opens this same pane with
+  // ?mode=encryptSend (see manifest.xml's messageComposeEncryptSendTaskPaneUrl)
+  // instead of a separate task pane -- Outlook has no shared runtime, so a
+  // UI-less ribbon function command can't reach into this pane's DOM or show
+  // the passphrase modal; reusing this pane is the only way to get both.
+  const forceEncryptSendMode =
+    typeof window !== 'undefined' && window.location &&
+    new URLSearchParams(window.location.search).get('mode') === 'encryptSend';
+
+  if (forceEncryptSendMode) {
+    // Deliberately NOT gated on the auto-encrypt/auto-send preferences --
+    // this button always runs the cascade regardless of what's stored.
+    runForceEncryptAndSend().catch((e) => console.error('Encrypt & Send failed', e));
+  } else {
+    // Fire-and-forget: inert unless the auto-encrypt preference is on and all
+    // recipients already have (or come to have) a resolved key. See its own
+    // docblock for the full wait/retry/abort behavior.
+    maybeAutoEncrypt().catch((e) => console.error('Auto-encrypt failed', e));
+  }
 
   // Reflect initial session cache state (user may have just come from KeyManagement)
   updateSessionStatus();
