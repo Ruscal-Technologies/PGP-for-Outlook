@@ -84,6 +84,48 @@
     minutes of inactivity) and the original message appears.
   </p>
 
+  <h2>Replying to an encrypted message</h2>
+  <p>
+    After decrypting a message, the Decrypt pane shows two buttons:
+  </p>
+  <ul>
+    <li><strong>Reply All</strong> — replies to everyone on the message.</li>
+    <li><strong>Reply Sender</strong> — replies only to the original sender.</li>
+  </ul>
+  <p>
+    Either one opens a normal Outlook reply window, addressed correctly and
+    with the decrypted message quoted underneath — write your response above
+    it, click <strong>Encrypt</strong> when you're ready, then <strong>Send</strong>
+    as usual.
+  </p>
+  <div class="callout">
+    <strong>For a long original message, there's one extra step.</strong>
+    Outlook itself limits how much text a reply window can be pre-filled
+    with, so very long messages can't be quoted in automatically the same
+    way. When this happens:
+    <ul style="margin-bottom:0;">
+      <li>
+        On Outlook Desktop (classic), a notification bar appears near the top
+        of the new reply window that says <em>"A large decrypted reply is
+        ready to be inserted into this message."</em> Click its
+        <strong>Insert decrypted reply</strong> button — the decrypted text
+        is inserted for you automatically within a few seconds.
+      </li>
+      <li>
+        If that notification doesn't appear (some Outlook versions don't
+        support it yet), click <strong>Insert Decrypted Reply</strong> in the
+        ribbon of the new reply window instead. It does the same thing.
+      </li>
+      <li>
+        If about 20 seconds go by with nothing inserted, don't worry — the
+        add-in automatically falls back to a second reply window with the
+        message content already filled in (shortened if necessary), so you're
+        never left with a blank reply. Just close whichever window you don't
+        need.
+      </li>
+    </ul>
+  </div>
+
   <h2>Automatic encryption and sending (optional, off by default)</h2>
   <p>
     In <strong>Manage PGP → Personal Preferences</strong>, two optional
