@@ -163,4 +163,46 @@ describe('armReplyHandoffListener — onSettled', () => {
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/broadcastchannel/i);
   });
+
+  it('calls onSettled with a "no pending reply" message and does not arm a listener when requirePendingMarker is true and the marker is absent', async () => {
+    const conversationId = 'conv-no-pending-marker';
+    const { office } = makeOfficeStub({
+      bodyHtml: '<div>Just an ordinary reply body, no handoff pending.</div>',
+      composeType: 'reply',
+      conversationId,
+    });
+    global.Office = office;
+
+    const settled = new Promise((resolve) => {
+      armReplyHandoffListener({ has110: true, has114: false, requirePendingMarker: true, onSettled: resolve });
+    });
+
+    const result = await settled;
+
+    expect(result).toEqual({ success: false, message: 'No pending decrypted reply to insert on this message.' });
+  });
+
+  it('proceeds to arm normally when requirePendingMarker is true and the marker IS present', async () => {
+    const conversationId = 'conv-pending-marker-present';
+    const { office } = makeOfficeStub({
+      bodyHtml: `<div>${HANDOFF_PENDING_MARKER}</div><div>${ARMOR}</div>`,
+      composeType: 'reply',
+      conversationId,
+    });
+    global.Office = office;
+
+    const { getReplyHandoffChannelName } = await import('../web/js/pgp/reply-handoff-channel.js');
+    const settled = new Promise((resolve) => {
+      armReplyHandoffListener({ has110: true, has114: false, requirePendingMarker: true, onSettled: resolve });
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+    const sender = new BroadcastChannel(getReplyHandoffChannelName(conversationId));
+    sender.postMessage({ type: 'pgp-reply-handoff', token: 'tok-2', text: 'decrypted', isHtml: false });
+
+    const result = await settled;
+    sender.close();
+
+    expect(result.success).toBe(true);
+  });
 });
