@@ -10,6 +10,8 @@ vi.mock('../web/js/pgp/key-storage.js', () => ({
   getPublicKey: vi.fn(() => 'armored-pub-key'),
   hasKeyPair: vi.fn(() => true),
   getSignDefault: vi.fn(() => false),
+  getAutoEncryptDefault: vi.fn(() => false),
+  getAutoSendDefault: vi.fn(() => false),
 }));
 
 // Keep the real detectPgpContent/stripPgpExtension/uint8ArrayToBase64/
@@ -441,5 +443,176 @@ describe('handleEncrypt — button visibility', () => {
 
     expect(decryptBtn.classList.remove).toHaveBeenCalledWith('pgp-hidden');
     expect(encryptBtn.classList.add).toHaveBeenCalledWith('pgp-hidden');
+  });
+});
+
+describe('auto-encrypt on pane load', () => {
+  beforeEach(async () => {
+    // MessageCompose.js tracks _autoEncryptFired as module-level state so it
+    // can only fire once per real pane session — vi.resetModules() gives
+    // each test here its own fresh module instance so that guard doesn't
+    // leak across tests, matching the same pattern message-compose.test.js
+    // already uses for this file's other module-level state.
+    vi.resetModules();
+    clearSessionKey();
+
+    // vi.resetModules() only reloads real (non-mocked) modules — the
+    // key-discovery.js mock instance registered by vi.mock() at the top of
+    // this file is a singleton that survives across it, so a test that
+    // overrides resolveRecipients with a persistent .mockResolvedValue(...)
+    // (rather than a self-consuming .mockResolvedValueOnce(...)) would
+    // otherwise leak that override into the next test. Restore the default
+    // "every recipient resolves immediately" behavior here so each test
+    // starts from the same baseline.
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients.mockReset();
+    keyDiscovery.resolveRecipients.mockImplementation(async (emails) => emails.map((email) => (
+      { email, key: { fake: 'recipient-key' }, status: 'found', source: 'keyring', armoredKey: null }
+    )));
+  });
+
+  it('fires handleEncrypt automatically when auto-encrypt is on and all recipients already have keys at pane load', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(false);
+
+    const { encryptBtn, decryptBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(decryptBtn.classList.remove).toHaveBeenCalledWith('pgp-hidden');
+    expect(encryptBtn.classList.add).toHaveBeenCalledWith('pgp-hidden');
+  });
+
+  it('does not fire when auto-encrypt is off', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(false);
+
+    const { encryptBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(encryptBtn.classList.add).not.toHaveBeenCalledWith('pgp-hidden');
+  });
+
+  it('does not fire a second time on the same pane session even if called again', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(false);
+
+    installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+    expect(pgpCore.encryptMessage).toHaveBeenCalledTimes(1);
+
+    await maybeAutoEncryptForTest();
+    expect(pgpCore.encryptMessage).toHaveBeenCalledTimes(1); // still 1, not 2
+  });
+
+  it('waits and retries when a recipient has no key yet, then fires once one appears', async () => {
+    vi.useFakeTimers();
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(false);
+
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'slow@example.com' }],
+    });
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients
+      .mockResolvedValueOnce([{ email: 'slow@example.com', key: null, status: 'not-found', source: null, armoredKey: null }])
+      .mockResolvedValueOnce([{ email: 'slow@example.com', key: { fake: 'recipient-key' }, status: 'found', source: 'keyring', armoredKey: null }]);
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    const runPromise = maybeAutoEncryptForTest();
+
+    // maybeAutoEncrypt()'s own first action is a fresh loadRecipients() call,
+    // which internally polls Outlook's recipients collection twice (via
+    // getRecipientsAsync's own ~300ms internal retry) before resolving — so
+    // even this FIRST pass needs a timer advance to complete, not just the
+    // 2s wait between auto-encrypt's own poll passes below. 500ms safely
+    // covers that internal ~300ms delay.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(statusEl.textContent).toContain('Waiting for all recipients to resolve');
+
+    // Advance past the 2s poll interval (which itself contains another
+    // internal ~300ms recipient-poll delay, safely covered within this
+    // window) to trigger the retry pass, which now finds the key.
+    await vi.advanceTimersByTimeAsync(2500);
+    await runPromise;
+
+    expect(pgpCore.encryptMessage).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it('gives up and shows a notice when no progress is made between two consecutive passes', async () => {
+    vi.useFakeTimers();
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'nokey@example.com' }],
+    });
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients.mockResolvedValue(
+      [{ email: 'nokey@example.com', key: null, status: 'not-found', source: null, armoredKey: null }],
+    );
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    const runPromise = maybeAutoEncryptForTest();
+
+    await vi.advanceTimersByTimeAsync(500); // flush the initial loadRecipients() call
+    await vi.advanceTimersByTimeAsync(2500); // second pass: identical result -> give up
+    await runPromise;
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toContain("didn't complete");
+    vi.useRealTimers();
+  });
+
+  it('aborts without firing when inline attachments are present', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello <img src="cid:abc123"></p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    await maybeAutoEncryptForTest();
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toContain('inline images');
   });
 });

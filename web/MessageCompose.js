@@ -45,7 +45,7 @@ import {
   base64ToUint8Array, uint8ArrayToBase64, stripPgpExtension,
   detectPgpContent,
 } from './js/pgp/pgp-core.js';
-import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault } from './js/pgp/key-storage.js';
+import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault, getAutoEncryptDefault, getAutoSendDefault } from './js/pgp/key-storage.js';
 import {
   cacheSessionKey, getSessionKey, clearSessionKey,
   getSessionEmail, getSessionShortId, onSessionCleared,
@@ -59,7 +59,7 @@ import {
   armReplyHandoffListener, stripPgpArmorBlock, pickSpliceMarker,
 } from './js/pgp/reply-handoff-runtime-core.js';
 
-export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleEncrypt, handleDecrypt, promptPassphrase as promptPassphraseForTest };
+export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleEncrypt, handleDecrypt, promptPassphrase as promptPassphraseForTest, maybeAutoEncrypt as maybeAutoEncryptForTest };
 
 // ── Session status ────────────────────────────────────────────────────────────
 
@@ -131,6 +131,23 @@ let _has110 = false;
  * @type {boolean}
  */
 let _has114 = false;
+
+/**
+ * True when the host meets Mailbox 1.15. Required for item.sendAsync(),
+ * used to gate auto-send (see maybeAutoSend()). Set once in Office.onReady
+ * via Office.context.requirements.isSetSupported().
+ * @type {boolean}
+ */
+let _has115 = false;
+
+/**
+ * Guards the auto-encrypt cascade so it can only ever fire once per pane
+ * session — set true the instant maybeAutoEncrypt() is invoked, before any
+ * async work, so a second call (there is none today, but this makes the
+ * invariant explicit and test-verifiable) can never re-run it.
+ * @type {boolean}
+ */
+let _autoEncryptFired = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -612,6 +629,110 @@ async function handleEncrypt() {
     }
     btn.disabled = false;
   }
+}
+
+// ── Auto-encrypt / auto-send ───────────────────────────────────────────────────
+
+/**
+ * Fires once, right after the compose pane loads, if the user's
+ * auto-encrypt preference is on. Calls loadRecipients() itself as its own
+ * first step rather than assuming Office.onReady's own startup call already
+ * populated _recipientResults — this makes the function self-contained and
+ * directly callable in isolation (including from a test), at the cost of a
+ * second, redundant recipient/key-resolution pass immediately after
+ * Office.onReady's own startup one. This is the same accepted tradeoff
+ * handleAutoEncrypt() below makes with loadAttachments()/
+ * reconcileInlineAttachments() — a small, harmless duplication in exchange
+ * for not having to reach into or depend on another function's completed
+ * side effects.
+ *
+ * After that first load, waits/retries every 2 seconds as long as each pass
+ * makes forward progress (a new recipient appears, or a previously-keyless
+ * recipient now has one), and gives up the moment a pass produces the exact
+ * same recipient/key-found snapshot as the previous pass. No arbitrary
+ * invented timeout: because loadRecipients() fully awaits both Outlook's
+ * recipient-resolution poll and the complete key-discovery chain before
+ * returning, "no change since last pass" reliably means every
+ * currently-listed recipient's lookup has already run to completion.
+ */
+async function maybeAutoEncrypt() {
+  if (_autoEncryptFired || !getAutoEncryptDefault() || !hasKeyPair()) return;
+  _autoEncryptFired = true;
+
+  await loadRecipients();
+  if (_recipientResults.length === 0) return; // nothing to encrypt to; leave as manual
+
+  let previousSnapshot = null;
+  while (true) {
+    if (_recipientResults.length > 0 && _recipientResults.every(r => !!r.key)) {
+      await handleAutoEncrypt();
+      return;
+    }
+
+    const snapshot = _recipientResults.map(r => `${r.email}:${!!r.key}`).join(',');
+    if (snapshot === previousSnapshot) {
+      showStatus("Auto-encrypt didn't complete — not all recipients have a resolved key.", 'warning');
+      return;
+    }
+    previousSnapshot = snapshot;
+
+    showStatus('Waiting for all recipients to resolve — auto-encrypt will run once ready…', 'info');
+    await new Promise(r => setTimeout(r, 2000));
+    await loadRecipients();
+  }
+}
+
+/**
+ * Pre-checks the two interactive decision points inside handleEncrypt() —
+ * inline attachments and the attachment-removal confirmation on Mailbox <1.8
+ * hosts — and aborts (leaving the message for manual encryption, where the
+ * user will see and can act on the same modal themselves) if either would be
+ * needed. Signing is the one exception: if a passphrase prompt is needed,
+ * handleEncrypt() shows it automatically, same as it would for a manual
+ * click. handleEncrypt() itself is not modified; it redundantly re-runs
+ * loadAttachments()/reconcileInlineAttachments() as part of its own existing
+ * steps, which is a deliberate, accepted small inefficiency (both are
+ * idempotent) in exchange for making zero changes to that already-tested
+ * function.
+ */
+async function handleAutoEncrypt() {
+  await loadAttachments();
+  const bodyHtml = await getBodyAsync(Office.CoercionType.Html);
+  reconcileInlineAttachments(bodyHtml);
+  if (_inlineAttachments.length > 0) {
+    showStatus('Auto-encrypt skipped — message contains inline images that need your attention.', 'warning');
+    return;
+  }
+  if (_attachments.length > 0 && !_has18) {
+    showStatus("Auto-encrypt skipped — this Outlook version can't encrypt attachments; review before sending.", 'warning');
+    return;
+  }
+
+  await handleEncrypt();
+
+  if (el('status-bar').classList.contains('pgp-alert--success')) {
+    await maybeAutoSend();
+  }
+}
+
+/**
+ * Fires automatically once handleAutoEncrypt() confirms a successful
+ * encrypt. Only runs when this host supports Mailbox 1.15 (required by
+ * sendAsync) and the user's auto-send preference is on — always re-checked
+ * locally at call time, never trusted from the stored preference alone,
+ * since roaming settings sync across devices and a preference enabled on a
+ * 1.15-capable host could be read back on one that isn't. No status message
+ * is shown before or during sending, and none is relied upon after — per
+ * Microsoft's own sendAsync docs, code meant to run on success isn't
+ * guaranteed to execute once the item is sent.
+ */
+async function maybeAutoSend() {
+  if (!_has115 || !getAutoSendDefault()) return;
+  Office.context.mailbox.item.sendAsync((asyncResult) => {
+    if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+      showStatus(`Automatic send failed: ${asyncResult.error.message}`, 'error');
+    }
+  });
 }
 
 async function handleDecrypt() {
@@ -1128,6 +1249,7 @@ Office.onReady(async () => {
   _has18 = Office.context.requirements.isSetSupported('Mailbox', '1.8');
   _has110 = Office.context.requirements.isSetSupported('Mailbox', '1.10');
   _has114 = Office.context.requirements.isSetSupported('Mailbox', '1.14');
+  _has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
 
   // Fire-and-forget: inert for every ordinary compose window unless a
   // matching reply-handoff broadcast actually arrives (see its own docblock).
@@ -1157,6 +1279,11 @@ Office.onReady(async () => {
   // Apply the user's stored sign-by-default preference.
   // The user can flip the toggle for any individual message.
   el('sign-toggle').checked = getSignDefault();
+
+  // Fire-and-forget: inert unless the auto-encrypt preference is on and all
+  // recipients already have (or come to have) a resolved key. See its own
+  // docblock for the full wait/retry/abort behavior.
+  maybeAutoEncrypt().catch((e) => console.error('Auto-encrypt failed', e));
 
   // Reflect initial session cache state (user may have just come from KeyManagement)
   updateSessionStatus();
