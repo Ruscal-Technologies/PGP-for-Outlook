@@ -83,6 +83,21 @@
           ]
         },
         {
+          "id": "ComposeEncryptSendTaskPane",
+          "type": "general",
+          "code": {
+            "page": "https://pgp-outlook.ruscaltech.com/MessageCompose.html?mode=encryptSend"
+          },
+          "lifetime": "short",
+          "actions": [
+            {
+              "id": "ShowComposeEncryptSendPane",
+              "type": "openPage",
+              "view": "homepage"
+            }
+          ]
+        },
+        {
           "id": "KeyMgmtTaskPane",
           "type": "general",
           "code": {
@@ -179,6 +194,21 @@
                         "description": "Open the PGP encryption pane to encrypt this message before sending."
                       },
                       "actionId": "ShowComposePane"
+                    },
+                    {
+                      "id": "ComposeEncryptSendButton",
+                      "type": "button",
+                      "label": "Encrypt & Send",
+                      "icons": [
+                        { "size": 16, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncryptSend16.png" },
+                        { "size": 32, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncryptSend32.png" },
+                        { "size": 80, "url": "https://pgp-outlook.ruscaltech.com/images/IconEncryptSend80.png" }
+                      ],
+                      "supertip": {
+                        "title": "Encrypt & Send Message",
+                        "description": "Encrypt this message and send it immediately, without further review."
+                      },
+                      "actionId": "ShowComposeEncryptSendPane"
                     },
                     {
                       "id": "ComposeKeysButton",

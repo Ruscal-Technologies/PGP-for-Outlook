@@ -165,6 +165,23 @@
                   </Action>
                 </Control>
 
+                <!-- Encrypt & Send button -->
+                <Control xsi:type="Button" id="msgComposeEncryptSendButton">
+                  <Label resid="composeEncryptSendButtonLabel" />
+                  <Supertip>
+                    <Title resid="composeEncryptSendSuperTipTitle" />
+                    <Description resid="composeEncryptSendSuperTipDescription" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="iconEncryptSend16" />
+                    <bt:Image size="32" resid="iconEncryptSend32" />
+                    <bt:Image size="80" resid="iconEncryptSend80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <SourceLocation resid="messageComposeEncryptSendTaskPaneUrl" />
+                  </Action>
+                </Control>
+
                 <!-- Manage Keys button -->
                 <Control xsi:type="Button" id="msgComposeKeysButton">
                   <Label resid="manageKeysButtonLabel" />
@@ -208,12 +225,17 @@
         <bt:Image id="iconEncrypt16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt16.png" />
         <bt:Image id="iconEncrypt32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt32.png" />
         <bt:Image id="iconEncrypt80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt80.png" />
+        <!-- Encrypt & Send – green closed padlock + white send-arrow badge -->
+        <bt:Image id="iconEncryptSend16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncryptSend16.png" />
+        <bt:Image id="iconEncryptSend32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncryptSend32.png" />
+        <bt:Image id="iconEncryptSend80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncryptSend80.png" />
       </bt:Images>
 
       <bt:Urls>
         <bt:Url id="functionFile"              DefaultValue="https://pgp-outlook.ruscaltech.com/Functions/FunctionFile.html" />
         <bt:Url id="messageReadTaskPaneUrl"    DefaultValue="https://pgp-outlook.ruscaltech.com/MessageRead.html" />
         <bt:Url id="messageComposeTaskPaneUrl" DefaultValue="https://pgp-outlook.ruscaltech.com/MessageCompose.html" />
+        <bt:Url id="messageComposeEncryptSendTaskPaneUrl" DefaultValue="https://pgp-outlook.ruscaltech.com/MessageCompose.html?mode=encryptSend" />
         <bt:Url id="keyManagementTaskPaneUrl"  DefaultValue="https://pgp-outlook.ruscaltech.com/KeyManagement.html" />
       </bt:Urls>
 
@@ -223,6 +245,8 @@
         <bt:String id="readDecryptSuperTipTitle"         DefaultValue="Decrypt PGP Message" />
         <bt:String id="composeEncryptButtonLabel"    DefaultValue="Encrypt" />
         <bt:String id="composeEncryptSuperTipTitle"  DefaultValue="Encrypt PGP Message" />
+        <bt:String id="composeEncryptSendButtonLabel"    DefaultValue="Encrypt &amp; Send" />
+        <bt:String id="composeEncryptSendSuperTipTitle"  DefaultValue="Encrypt &amp; Send Message" />
         <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage PGP" />
         <bt:String id="manageKeysSuperTipTitle"      DefaultValue="PGP Key Management" />
       </bt:ShortStrings>
@@ -232,6 +256,8 @@
           DefaultValue="Open the PGP decryption pane to decrypt this message and verify its signature." />
         <bt:String id="compEncryptSuperTipDescription"
           DefaultValue="Open the PGP encryption pane to encrypt this message before sending." />
+        <bt:String id="composeEncryptSendSuperTipDescription"
+          DefaultValue="Encrypt this message and send it immediately, without further review." />
         <bt:String id="manageKeysSuperTipDescription"
           DefaultValue="Generate or import PGP keys, manage your keyring, and configure organization settings." />
       </bt:LongStrings>
@@ -358,6 +384,23 @@
                     </Action>
                   </Control>
 
+                  <!-- Encrypt & Send button -->
+                  <Control xsi:type="Button" id="msgComposeEncryptSendButton">
+                    <Label resid="composeEncryptSendButtonLabel" />
+                    <Supertip>
+                      <Title resid="composeEncryptSendSuperTipTitle" />
+                      <Description resid="composeEncryptSendSuperTipDescription" />
+                    </Supertip>
+                    <Icon>
+                      <bt:Image size="16" resid="iconEncryptSend16" />
+                      <bt:Image size="32" resid="iconEncryptSend32" />
+                      <bt:Image size="80" resid="iconEncryptSend80" />
+                    </Icon>
+                    <Action xsi:type="ShowTaskpane">
+                      <SourceLocation resid="messageComposeEncryptSendTaskPaneUrl" />
+                    </Action>
+                  </Control>
+
                   <Control xsi:type="Button" id="msgComposeKeysButton">
                     <Label resid="manageKeysButtonLabel" />
                     <Supertip>
@@ -472,12 +515,17 @@
           <bt:Image id="iconEncrypt16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt16.png" />
           <bt:Image id="iconEncrypt32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt32.png" />
           <bt:Image id="iconEncrypt80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncrypt80.png" />
+          <!-- Encrypt & Send – green closed padlock + white send-arrow badge -->
+          <bt:Image id="iconEncryptSend16" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncryptSend16.png" />
+          <bt:Image id="iconEncryptSend32" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncryptSend32.png" />
+          <bt:Image id="iconEncryptSend80" DefaultValue="https://pgp-outlook.ruscaltech.com/images/IconEncryptSend80.png" />
         </bt:Images>
 
         <bt:Urls>
           <bt:Url id="functionFile"              DefaultValue="https://pgp-outlook.ruscaltech.com/Functions/FunctionFile.html" />
           <bt:Url id="messageReadTaskPaneUrl"    DefaultValue="https://pgp-outlook.ruscaltech.com/MessageRead.html" />
           <bt:Url id="messageComposeTaskPaneUrl" DefaultValue="https://pgp-outlook.ruscaltech.com/MessageCompose.html" />
+          <bt:Url id="messageComposeEncryptSendTaskPaneUrl" DefaultValue="https://pgp-outlook.ruscaltech.com/MessageCompose.html?mode=encryptSend" />
           <bt:Url id="keyManagementTaskPaneUrl"  DefaultValue="https://pgp-outlook.ruscaltech.com/KeyManagement.html" />
           <bt:Url id="replyHandoffRuntimeUrl"    DefaultValue="https://pgp-outlook.ruscaltech.com/ReplyHandoffRuntime.html" />
           <bt:Url id="replyHandoffRuntimeJsUrl"  DefaultValue="https://pgp-outlook.ruscaltech.com/Functions/ReplyHandoffRuntime.classic.js" />
@@ -490,6 +538,8 @@
           <bt:String id="readDecryptSuperTipTitle"         DefaultValue="Decrypt PGP Message" />
           <bt:String id="composeEncryptButtonLabel"    DefaultValue="Encrypt" />
           <bt:String id="composeEncryptSuperTipTitle"  DefaultValue="Encrypt PGP Message" />
+          <bt:String id="composeEncryptSendButtonLabel"    DefaultValue="Encrypt &amp; Send" />
+          <bt:String id="composeEncryptSendSuperTipTitle"  DefaultValue="Encrypt &amp; Send Message" />
           <bt:String id="manageKeysButtonLabel"        DefaultValue="Manage PGP" />
           <bt:String id="manageKeysSuperTipTitle"      DefaultValue="PGP Key Management" />
           <bt:String id="replyHandoffButtonLabel"      DefaultValue="Insert Decrypted Reply" />
@@ -501,6 +551,8 @@
             DefaultValue="Open the PGP decryption pane to decrypt this message and verify its signature." />
           <bt:String id="compEncryptSuperTipDescription"
             DefaultValue="Open the PGP encryption pane to encrypt this message before sending." />
+          <bt:String id="composeEncryptSendSuperTipDescription"
+            DefaultValue="Encrypt this message and send it immediately, without further review." />
           <bt:String id="manageKeysSuperTipDescription"
             DefaultValue="Generate or import PGP keys, manage your keyring, and configure organization settings." />
           <bt:String id="replyHandoffSuperTipDescription"
