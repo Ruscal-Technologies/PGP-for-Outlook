@@ -122,7 +122,7 @@ export async function fetchFromWKD(email) {
  */
 export async function fetchFromVKS(email, keyserver = 'keys.openpgp.org') {
   const url = `https://${keyserver}/vks/v1/by-email/${encodeURIComponent(email)}`;
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
   if (response.status !== 200) return null;
   const armoredKey = await response.text();
   if (!armoredKey || !armoredKey.includes('BEGIN PGP')) return null;

@@ -32,6 +32,13 @@ export default class WKD {
 
     /**
      * Search for a public key using Web Key Directory protocol.
+     *
+     * NOTE: this method deviates from the original wkd-client upstream
+     * source (see file header) by adding an explicit 10-second timeout to
+     * both fetch() calls below — the upstream code has none, which let a
+     * hung network request block indefinitely (a real risk once this
+     * add-in's auto-encrypt feature waits on key lookups to resolve).
+     *
      * @param   {String}   options.email         User's email.
      * @returns {Uint8Array} The public key.
      * @async
@@ -60,12 +67,12 @@ export default class WKD {
 
         let response;
         try {
-            response = await fetch(urlAdvanced);
+            response = await fetch(urlAdvanced, { signal: AbortSignal.timeout(10000) });
             if (response.status !== 200) {
                 throw new Error('Advanced WKD lookup failed: ' + response.statusText);
             }
         } catch (err) {
-            response = await fetch(urlDirect);
+            response = await fetch(urlDirect, { signal: AbortSignal.timeout(10000) });
             if (response.status !== 200) {
                 throw new Error('Direct WKD lookup failed: ' + response.statusText);
             }

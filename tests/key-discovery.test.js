@@ -152,7 +152,10 @@ describe('fetchFromVKS (real implementation, mocked fetch)', () => {
 
     const result = await keyDiscovery.fetchFromVKS('alice@example.com');
 
-    expect(global.fetch).toHaveBeenCalledWith('https://keys.openpgp.org/vks/v1/by-email/alice%40example.com');
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://keys.openpgp.org/vks/v1/by-email/alice%40example.com',
+      { signal: expect.any(AbortSignal) },
+    );
     expect(result.armoredKey).toBe(alice.publicKey);
     expect(result.key).toBeTruthy();
   });
@@ -165,5 +168,14 @@ describe('fetchFromVKS (real implementation, mocked fetch)', () => {
   it('returns null when the response body is not a PGP key', async () => {
     global.fetch = vi.fn().mockResolvedValue({ status: 200, text: async () => 'not a key' });
     expect(await keyDiscovery.fetchFromVKS('nobody@example.com')).toBeNull();
+  });
+
+  it('passes an AbortSignal to fetch so a hung request cannot hang forever', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ status: 200, text: async () => alice.publicKey });
+
+    await keyDiscovery.fetchFromVKS('alice@example.com');
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch.mock.calls[0][1]).toEqual({ signal: expect.any(AbortSignal) });
   });
 });

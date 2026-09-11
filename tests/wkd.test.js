@@ -107,4 +107,15 @@ describe('WKD.lookup', () => {
     const wkd = new WKD();
     await expect(wkd.lookup({ email: 'not-an-email' })).rejects.toThrow(/Invalid e-mail address/);
   });
+
+  it('passes an AbortSignal to fetch so a hung request cannot hang forever', async () => {
+    const responseBytes = new Uint8Array([1, 2, 3]);
+    global.fetch = vi.fn().mockResolvedValue({ status: 200, arrayBuffer: async () => responseBytes.buffer });
+
+    const wkd = new WKD();
+    await wkd.lookup({ email: 'alice@example.com' });
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch.mock.calls[0][1]).toEqual({ signal: expect.any(AbortSignal) });
+  });
 });
