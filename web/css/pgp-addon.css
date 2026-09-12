@@ -349,13 +349,11 @@ html, body {
 .pgp-toggle input:disabled + .pgp-toggle__track {
   background: #c8c6c4;
   opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .pgp-toggle input:disabled ~ .pgp-toggle__label {
   color: #a19f9d;
-}
-
-.pgp-toggle:has(input:disabled) {
   cursor: not-allowed;
 }
 

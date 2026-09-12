@@ -29,7 +29,7 @@ software, plugins, or IT-managed infrastructure.
 | **Encrypted reply** | After decrypting, the **Encrypted Reply** section in the read task pane opens a new compose window pre-filled with recipients (To/CC), subject (`Re: …`), and the decrypted content quoted with sender attribution and timestamp — on desktop and OWA. On iOS/Android, an in-pane workaround encrypts the reply and copies the armor to the clipboard for pasting into a normal Outlook reply |
 | **Session key cache** | Unlocked private key cached in memory for 15 minutes; passphrase is never stored |
 | **Auto-encrypt / auto-send** | Opt-in preferences (off by default, set in Manage PGP → Personal Preferences) that encrypt automatically once every recipient has a resolved key, and — separately, and only on hosts new enough to support it — send automatically once that encrypt succeeds. There is no confirmation step before an auto-send goes out, so enable it only once you're comfortable trusting the automation |
-| **Encrypt & Send** | One-click ribbon button that always encrypts and sends immediately, regardless of your auto-encrypt/auto-send preferences. Shows a one-time confirmation the first time (resettable in Manage PGP). |
+| **Encrypt & Send** | One-click ribbon button that always encrypts and sends immediately, regardless of your auto-encrypt/auto-send preferences. Shows a one-time confirmation the first time (resettable in Manage PGP). (on hosts below Mailbox 1.15, it encrypts and leaves the message for you to send manually) |
 
 ---
 

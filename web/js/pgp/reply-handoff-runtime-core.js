@@ -246,7 +246,13 @@ async function applyReplyHandoff(text, isHtml) {
  */
 export async function armReplyHandoffListener({ has110, has114, requirePendingMarker, onStatus, onSettled } = {}) {
   if (requirePendingMarker) {
-    const bodyHtml = await getBodyAsync(Office.CoercionType.Html).catch(() => '');
+    let bodyHtml;
+    try {
+      bodyHtml = await getBodyAsync(Office.CoercionType.Html);
+    } catch (e) {
+      if (onSettled) onSettled({ success: false, message: `Could not check this message for a pending decrypted reply: ${e.message}` });
+      return;
+    }
     if (!bodyHtml.includes(HANDOFF_PENDING_MARKER)) {
       if (onSettled) onSettled({ success: false, message: 'No pending decrypted reply to insert on this message.' });
       return;

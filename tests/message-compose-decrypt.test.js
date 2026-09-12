@@ -1080,4 +1080,56 @@ describe('runForceEncryptAndSend', () => {
 
     expect(sendAsync).not.toHaveBeenCalled();
   });
+
+  it('force-disables the ordinary Encrypt button for the duration of the recipient-key wait, and restores it afterward', async () => {
+    // Regression: a manual click on btn-encrypt while runForceEncryptAndSend()
+    // is still inside waitForAllRecipientKeys() could race ahead of the
+    // forced flow's own handleEncrypt() call, causing that call to hit the
+    // "already encrypted" bailout and silently stop without ever sending.
+    vi.useFakeTimers();
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.hasAcknowledgedWarning = vi.fn(() => true);
+
+    const { encryptBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'slow@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients
+      .mockResolvedValueOnce([{ email: 'slow@example.com', key: null, status: 'not-found', source: null, armoredKey: null }])
+      .mockResolvedValueOnce([{ email: 'slow@example.com', key: { fake: 'recipient-key' }, status: 'found', source: 'keyring', armoredKey: null }]);
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    const runPromise = runForceEncryptAndSend();
+
+    // Flush the initial loadRecipients() poll (no key yet) -- btn-encrypt
+    // must already be forced disabled at this point, before any recipient
+    // has resolved, since the flag is set as the very first statement.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(encryptBtn.disabled).toBe(true);
+
+    // Advance past the 2s wait-loop retry, which now finds the key and lets
+    // the flow proceed into its own handleEncrypt()/sendAsync() call.
+    await vi.advanceTimersByTimeAsync(2500);
+    await runPromise;
+
+    expect(pgpCore.encryptMessage).toHaveBeenCalledTimes(1);
+    expect(sendAsync).toHaveBeenCalledTimes(1);
+    // The flag is cleared in the finally block and updateEncryptButton() is
+    // called once more -- with a resolved recipient and a key pair, the
+    // button should now reflect a normal ready state (re-enabled), not the
+    // forced-disabled state from during the wait.
+    expect(encryptBtn.disabled).toBe(false);
+
+    vi.useRealTimers();
+  });
 });

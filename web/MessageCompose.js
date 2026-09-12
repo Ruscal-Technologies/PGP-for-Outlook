@@ -152,6 +152,19 @@ let _autoEncryptFired = false;
  */
 let _encryptInFlight = false;
 
+/**
+ * True for the duration of runForceEncryptAndSend()'s wait-for-recipients
+ * phase and its own handleEncrypt() call. Forces btn-encrypt to stay
+ * disabled even when updateEncryptButton() would otherwise enable it
+ * (updateEncryptButton() is called repeatedly by loadRecipients(), which
+ * waitForAllRecipientKeys() polls internally) -- prevents a manual Encrypt
+ * click from racing ahead of the forced flow's own handleEncrypt() call,
+ * which would otherwise hit the already-encrypted bailout and cause
+ * Encrypt & Send to silently stop without ever sending.
+ * @type {boolean}
+ */
+let _forceEncryptSendActive = false;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function el(id) { return document.getElementById(id); }
@@ -404,9 +417,10 @@ function updateEncryptButton() {
   const allHaveKeys = _recipientResults.length > 0 &&
     _recipientResults.every(r => !!r.key);
   const ready = allHaveKeys && hasKeyPair();
+  const disabled = !ready || _forceEncryptSendActive;
   const wasDisabled = el('btn-encrypt').disabled;
-  el('btn-encrypt').disabled = !ready;
-  if (ready && wasDisabled) el('btn-encrypt').focus(); // only on disabled→enabled transition
+  el('btn-encrypt').disabled = disabled;
+  if (!disabled && wasDisabled) el('btn-encrypt').focus(); // only on disabled→enabled transition
 }
 
 /**
@@ -813,13 +827,17 @@ async function handleAutoEncrypt() {
  * already be torn down). Shared by maybeAutoSend() (gated on preferences)
  * and the forced Encrypt & Send flow (runForceEncryptAndSend(), unconditional).
  *
+ * @param {string} [actionLabel='Automatic send'] - Prefix used in the
+ *   failure status message, so an explicit user-initiated send (Encrypt &
+ *   Send) reads e.g. "Send failed: ..." rather than the misleading
+ *   "Automatic send failed: ..." that only fits the background auto-send path.
  * @returns {Promise<void>}
  */
-function performSend() {
+function performSend(actionLabel = 'Automatic send') {
   return new Promise((resolve) => {
     Office.context.mailbox.item.sendAsync((asyncResult) => {
       if (asyncResult.status === Office.AsyncResultStatus.Failed) {
-        showStatus(`Automatic send failed: ${asyncResult.error.message}`, 'error');
+        showStatus(`${actionLabel} failed: ${asyncResult.error.message}`, 'error');
       }
       resolve();
     });
@@ -891,40 +909,51 @@ function confirmEncryptSend() {
  *     now-encrypted message for the user to send manually.
  */
 async function runForceEncryptAndSend() {
-  if (!hasKeyPair()) {
-    showStatus("You don't have a PGP key pair — open Manage PGP to generate one.", 'error');
-    return;
-  }
-
-  if (!hasAcknowledgedWarning('encryptSendConfirm')) {
-    const confirmed = await confirmEncryptSend();
-    if (!confirmed) return;
-    await saveAcknowledgedWarning('encryptSendConfirm');
-  }
-
-  const ready = await waitForAllRecipientKeys();
-  if (!ready) {
-    // Disambiguate "gave up waiting" from "there was nothing to wait on" —
-    // matches maybeAutoEncrypt()'s use of _recipientResults.length for the
-    // same distinction.
-    if (_recipientResults.length > 0) {
-      showStatus("Encrypt & Send didn't complete — not all recipients have a resolved key.", 'warning');
-    } else {
-      showStatus('No recipients to send to.', 'warning');
+  _forceEncryptSendActive = true;
+  try {
+    if (!hasKeyPair()) {
+      showStatus("You don't have a PGP key pair — open Manage PGP to generate one.", 'error');
+      return;
     }
-    return;
+
+    if (!hasAcknowledgedWarning('encryptSendConfirm')) {
+      const confirmed = await confirmEncryptSend();
+      if (!confirmed) return;
+      try {
+        await saveAcknowledgedWarning('encryptSendConfirm');
+      } catch (e) {
+        showStatus(`Could not save your confirmation: ${e.message}`, 'error');
+        return;
+      }
+    }
+
+    const ready = await waitForAllRecipientKeys();
+    if (!ready) {
+      // Disambiguate "gave up waiting" from "there was nothing to wait on" —
+      // matches maybeAutoEncrypt()'s use of _recipientResults.length for the
+      // same distinction.
+      if (_recipientResults.length > 0) {
+        showStatus("Encrypt & Send didn't complete — not all recipients have a resolved key.", 'warning');
+      } else {
+        showStatus('No recipients to send to.', 'warning');
+      }
+      return;
+    }
+
+    const encrypted = await handleEncrypt();
+    if (!encrypted) return;
+
+    const has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
+    if (!has115) {
+      showStatus("✓ Message encrypted. This version of Outlook doesn't support automatic sending — click Send yourself.", 'warning');
+      return;
+    }
+
+    await performSend('Send');
+  } finally {
+    _forceEncryptSendActive = false;
+    updateEncryptButton();
   }
-
-  const encrypted = await handleEncrypt();
-  if (!encrypted) return;
-
-  const has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
-  if (!has115) {
-    showStatus("✓ Message encrypted. This version of Outlook doesn't support automatic sending — click Send yourself.", 'warning');
-    return;
-  }
-
-  await performSend();
 }
 
 async function handleDecrypt() {

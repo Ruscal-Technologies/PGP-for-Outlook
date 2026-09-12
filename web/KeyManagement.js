@@ -854,8 +854,12 @@ async function handleSavePrefs() {
  * confirmation) so each is shown again on its next trigger.
  */
 async function handleResetWarnings() {
-  await resetAllAcknowledgedWarnings();
-  showStatus('prefs-save-status', 'All one-time warnings will be shown again.', 'success');
+  try {
+    await resetAllAcknowledgedWarnings();
+    showStatus('prefs-save-status', 'All one-time warnings will be shown again.', 'success');
+  } catch (e) {
+    showStatus('prefs-save-status', `Could not reset warnings: ${e.message}`, 'error');
+  }
 }
 
 // ── XSS-safe HTML escaping ────────────────────────────────────────────────────

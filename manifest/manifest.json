@@ -206,7 +206,7 @@
                       ],
                       "supertip": {
                         "title": "Encrypt & Send Message",
-                        "description": "Encrypt this message and send it immediately, without further review."
+                        "description": "Encrypt this message and send it immediately, without further review (on older Outlook versions, it encrypts and asks you to send manually)."
                       },
                       "actionId": "ShowComposeEncryptSendPane"
                     },

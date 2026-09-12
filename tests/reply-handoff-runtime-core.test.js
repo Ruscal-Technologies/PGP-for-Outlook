@@ -205,4 +205,37 @@ describe('armReplyHandoffListener — onSettled', () => {
 
     expect(result.success).toBe(true);
   });
+
+  it('distinguishes a body-read failure from "no pending reply" when requirePendingMarker is true', async () => {
+    // Regression: getBodyAsync().catch(() => '') used to swallow a genuine
+    // Office API error and misreport it as "no pending decrypted reply",
+    // hiding the real failure from the user.
+    global.Office = {
+      onReady: () => {},
+      CoercionType: { Html: 'html', Text: 'text' },
+      AsyncResultStatus: { Succeeded: 'succeeded', Failed: 'failed' },
+      MailboxEnums: { ComposeType: { Reply: 'reply', ReplyAll: 'replyAll', NewMail: 'newMail', Forward: 'forward' } },
+      context: {
+        mailbox: {
+          item: {
+            conversationId: 'conv-body-read-error',
+            getComposeTypeAsync: (cb) => cb({ status: 'succeeded', value: { composeType: 'reply' } }),
+            body: {
+              getAsync: (_coercionType, cb) => cb({ status: 'failed', error: { message: 'some office error' } }),
+              setAsync: (_html, _options, cb) => cb({ status: 'succeeded' }),
+            },
+          },
+        },
+      },
+    };
+
+    const result = await new Promise((resolve) => {
+      armReplyHandoffListener({ has110: true, has114: false, requirePendingMarker: true, onSettled: resolve });
+    });
+
+    expect(result).toEqual({
+      success: false,
+      message: expect.stringContaining('Could not check this message'),
+    });
+  });
 });

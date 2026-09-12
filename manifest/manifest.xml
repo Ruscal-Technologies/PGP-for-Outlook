@@ -257,7 +257,7 @@
         <bt:String id="compEncryptSuperTipDescription"
           DefaultValue="Open the PGP encryption pane to encrypt this message before sending." />
         <bt:String id="composeEncryptSendSuperTipDescription"
-          DefaultValue="Encrypt this message and send it immediately, without further review." />
+          DefaultValue="Encrypt this message and send it immediately, without further review (on older Outlook versions, it encrypts and asks you to send manually)." />
         <bt:String id="manageKeysSuperTipDescription"
           DefaultValue="Generate or import PGP keys, manage your keyring, and configure organization settings." />
       </bt:LongStrings>
@@ -552,7 +552,7 @@
           <bt:String id="compEncryptSuperTipDescription"
             DefaultValue="Open the PGP encryption pane to encrypt this message before sending." />
           <bt:String id="composeEncryptSendSuperTipDescription"
-            DefaultValue="Encrypt this message and send it immediately, without further review." />
+            DefaultValue="Encrypt this message and send it immediately, without further review (on older Outlook versions, it encrypts and asks you to send manually)." />
           <bt:String id="manageKeysSuperTipDescription"
             DefaultValue="Generate or import PGP keys, manage your keyring, and configure organization settings." />
           <bt:String id="replyHandoffSuperTipDescription"
