@@ -1156,4 +1156,36 @@ describe('runForceEncryptAndSend', () => {
 
     expect(encryptBtn.disabled).toBe(true);
   });
+
+  it('retries sending an already-encrypted message instead of stopping silently (e.g. after a previous send failure)', async () => {
+    // Regression: handleEncrypt() returns false both when it genuinely
+    // fails AND when the body is already PGP-armored (its own
+    // "already encrypted" bailout). Clicking Encrypt & Send again after,
+    // say, a prior successful encrypt whose own performSend() failed is
+    // almost certainly a request to retry the SEND, not to re-encrypt --
+    // this must not silently stop with only handleEncrypt()'s generic
+    // warning and no way to retry short of Outlook's own Send button.
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.hasAcknowledgedWarning = vi.fn(() => true);
+
+    const { statusEl } = installStubs({
+      bodyText: '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    await runForceEncryptAndSend();
+
+    // handleEncrypt() bails at its own already-encrypted check without ever
+    // calling encryptMessage() -- proves this test exercises that bailout,
+    // not a genuine fresh encrypt.
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(sendAsync).toHaveBeenCalledTimes(1);
+    expect(statusEl.textContent).toContain('already encrypted');
+  });
 });

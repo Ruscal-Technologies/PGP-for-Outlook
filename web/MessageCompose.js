@@ -950,7 +950,20 @@ async function runForceEncryptAndSend() {
     }
 
     const encrypted = await handleEncrypt();
-    if (!encrypted) return;
+    if (!encrypted) {
+      // handleEncrypt() also returns false when the body is ALREADY
+      // PGP-armored (e.g. a previous Encrypt & Send attempt encrypted
+      // successfully but its own performSend() then failed, or the user
+      // separately clicked the ordinary Encrypt button first). In that
+      // case, clicking "Encrypt & Send" again is almost certainly a retry
+      // of the SEND, not a request to re-encrypt -- fall through to
+      // sending the already-armored body instead of stopping with only
+      // handleEncrypt()'s generic "already encrypted" warning and no way
+      // to retry short of using Outlook's own Send button.
+      const bodyText = await getBodyAsync(Office.CoercionType.Text).catch(() => '');
+      if (detectPgpContent(bodyText) !== 'encrypted') return;
+      showStatus('Message was already encrypted — sending now.', 'info');
+    }
 
     const has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
     if (!has115) {
