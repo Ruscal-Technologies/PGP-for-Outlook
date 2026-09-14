@@ -1523,7 +1523,7 @@ Office.onReady(async () => {
   el('sign-toggle').checked = getSignDefault();
 
   // The "Encrypt & Send" ribbon button opens this same pane with
-  // ?mode=encryptSend (see manifest.xml's messageComposeEncryptSendTaskPaneUrl)
+  // ?mode=encryptSend (see manifest.xml's composeEncryptSendTaskPaneUrl)
   // instead of a separate task pane -- Outlook has no shared runtime, so a
   // UI-less ribbon function command can't reach into this pane's DOM or show
   // the passphrase modal; reusing this pane is the only way to get both.

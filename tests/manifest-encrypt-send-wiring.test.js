@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 
 // Regression test tying together the three places that must agree on the
 // literal string "encryptSend": manifest.xml's two
-// messageComposeEncryptSendTaskPaneUrl resources (?mode=encryptSend),
+// composeEncryptSendTaskPaneUrl resources (?mode=encryptSend),
 // manifest.json's ComposeEncryptSendTaskPane runtime code.page URL, and
 // MessageCompose.js's own comparison against
 // URLSearchParams(window.location.search).get('mode'). A typo in any one of
