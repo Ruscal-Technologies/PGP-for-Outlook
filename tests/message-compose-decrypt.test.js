@@ -12,6 +12,8 @@ vi.mock('../web/js/pgp/key-storage.js', () => ({
   getSignDefault: vi.fn(() => false),
   getAutoEncryptDefault: vi.fn(() => false),
   getAutoSendDefault: vi.fn(() => false),
+  hasAcknowledgedWarning: vi.fn(() => false),
+  saveAcknowledgedWarning: vi.fn(async () => {}),
 }));
 
 // Keep the real detectPgpContent/stripPgpExtension/uint8ArrayToBase64/
@@ -104,6 +106,9 @@ function installStubs({ bodyText = '', attachments = [], recipients = [] } = {})
   const companyKeyToggle = { checked: false };
   const companyKeyDisabledEl = { classList: { add: vi.fn(), remove: vi.fn() } };
   const companyKeyPanelEl = { classList: { add: vi.fn(), remove: vi.fn() } };
+  const encryptSendConfirmPanel = { classList: { add: vi.fn(), remove: vi.fn() } };
+  const encryptSendConfirmBtn = { addEventListener: (_e, cb) => { encryptSendConfirmBtn._cb = cb; }, removeEventListener: vi.fn() };
+  const encryptSendCancelBtn = { addEventListener: (_e, cb) => { encryptSendCancelBtn._cb = cb; }, removeEventListener: vi.fn() };
 
   const elements = {
     'btn-encrypt': encryptBtn,
@@ -127,6 +132,9 @@ function installStubs({ bodyText = '', attachments = [], recipients = [] } = {})
     'company-key-toggle': companyKeyToggle,
     'company-key-disabled': companyKeyDisabledEl,
     'company-key-panel': companyKeyPanelEl,
+    'panel-encrypt-send-confirm': encryptSendConfirmPanel,
+    'btn-encrypt-send-confirm': encryptSendConfirmBtn,
+    'btn-encrypt-send-cancel': encryptSendCancelBtn,
     ...spinnerEls,
   };
   global.document = {
@@ -165,6 +173,7 @@ function installStubs({ bodyText = '', attachments = [], recipients = [] } = {})
   return {
     encryptBtn, decryptBtn, statusEl, getAsync, setAsync, getAttachmentsAsync,
     passphraseInput, passphraseMsg, okBtn, cancelBtn, signToggle,
+    encryptSendConfirmPanel, encryptSendConfirmBtn, encryptSendCancelBtn,
   };
 }
 
@@ -718,6 +727,61 @@ describe('auto-encrypt on pane load', () => {
     expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
     expect(statusEl.textContent).toContain("can't encrypt attachments");
   });
+
+  it('does not report ready with zero recipients if the recipient list empties out mid-wait', async () => {
+    vi.useFakeTimers();
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.getAutoEncryptDefault.mockReturnValue(true);
+    keyStorage.getAutoSendDefault.mockReturnValue(false);
+
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'nokey@example.com' }],
+    });
+
+    // Simulate the recipient being removed from To/Cc entirely partway
+    // through the wait loop: the first loadRecipients() poll (getAsync needs
+    // two consecutive equal-length reads to settle, per getRecipientsAsync())
+    // still sees the recipient; every loadRecipients() poll after that sees
+    // an empty To field -- loadRecipients()'s own "reset _recipientResults
+    // to []" branch (it never calls resolveRecipients() in that branch).
+    let toCallCount = 0;
+    global.Office.context.mailbox.item.to.getAsync = vi.fn((cb) => {
+      toCallCount++;
+      const value = toCallCount <= 2 ? [{ emailAddress: 'nokey@example.com' }] : [];
+      cb({ status: 'succeeded', value });
+    });
+
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients.mockResolvedValueOnce(
+      [{ email: 'nokey@example.com', key: null, status: 'not-found', source: null, armoredKey: null }],
+    );
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { maybeAutoEncryptForTest } = await import('../web/MessageCompose.js');
+    const runPromise = maybeAutoEncryptForTest();
+
+    // Generously advance past: the initial loadRecipients() poll, then two
+    // more 2s wait-loop passes (one that observes the list going empty, one
+    // more so the give-up snapshot comparison -- empty vs empty -- settles).
+    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3000);
+    await runPromise;
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    // With the length > 0 guard dropped, waitForAllRecipientKeys() would see
+    // _recipientResults reset to [] by loadRecipients() and [].every(...)
+    // vacuously report "ready" -- maybeAutoEncrypt() would then proceed into
+    // handleAutoEncrypt()/handleEncrypt(), which re-checks recipients itself
+    // and fails with "Encryption failed: Not all recipients...". With the
+    // guard restored, waitForAllRecipientKeys() never reports ready here, so
+    // handleEncrypt() is never even entered and the status bar never reaches
+    // that failure text.
+    expect(statusEl.textContent).not.toContain('Encryption failed');
+    vi.useRealTimers();
+  });
 });
 
 describe('auto-send after auto-encrypt', () => {
@@ -854,5 +918,274 @@ describe('auto-send after auto-encrypt', () => {
     await maybeAutoEncryptForTest();
 
     expect(sendAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe('runForceEncryptAndSend', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    clearSessionKey();
+
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients.mockReset();
+    keyDiscovery.resolveRecipients.mockImplementation(async (emails) => emails.map((email) => (
+      { email, key: { fake: 'recipient-key' }, status: 'found', source: 'keyring', armoredKey: null }
+    )));
+
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.hasAcknowledgedWarning = vi.fn(() => false);
+    keyStorage.saveAcknowledgedWarning = vi.fn(async () => {});
+    // Reset explicitly each test -- vi.resetModules() doesn't recreate the
+    // vi.mock()'d module object itself, so a per-test override (e.g. the
+    // "no key pair" test below) would otherwise leak into later tests.
+    keyStorage.hasKeyPair = vi.fn(() => true);
+  });
+
+  it('shows the confirmation panel and does nothing until confirmed', async () => {
+    const { encryptSendConfirmPanel, encryptSendCancelBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    const runPromise = runForceEncryptAndSend();
+
+    // Let the confirmation panel show before cancelling.
+    for (let i = 0; i < 20 && !encryptSendConfirmPanel.classList.remove.mock.calls.length; i++) {
+      await Promise.resolve();
+    }
+    expect(encryptSendConfirmPanel.classList.remove).toHaveBeenCalledWith('pgp-hidden');
+
+    encryptSendCancelBtn._cb();
+    await runPromise;
+
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    expect(keyStorage.saveAcknowledgedWarning).not.toHaveBeenCalled();
+  });
+
+  it('shows an error and never shows the confirmation panel when the user has no key pair', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.hasKeyPair = vi.fn(() => false);
+
+    const { encryptSendConfirmPanel, statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    await runForceEncryptAndSend();
+
+    expect(encryptSendConfirmPanel.classList.remove).not.toHaveBeenCalledWith('pgp-hidden');
+    expect(keyStorage.saveAcknowledgedWarning).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toMatch(/don't have a PGP key pair/);
+  });
+
+  it('encrypts and sends once confirmed, on a host that supports Mailbox 1.15', async () => {
+    const { encryptSendConfirmPanel, encryptSendConfirmBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    const runPromise = runForceEncryptAndSend();
+
+    for (let i = 0; i < 20 && !encryptSendConfirmPanel.classList.remove.mock.calls.length; i++) {
+      await Promise.resolve();
+    }
+    encryptSendConfirmBtn._cb();
+    await runPromise;
+
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    expect(keyStorage.saveAcknowledgedWarning).toHaveBeenCalledWith('encryptSendConfirm');
+    expect(pgpCore.encryptMessage).toHaveBeenCalled();
+    expect(sendAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips the confirmation panel entirely when already acknowledged', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.hasAcknowledgedWarning = vi.fn(() => true);
+
+    const { encryptSendConfirmPanel } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    await runForceEncryptAndSend();
+
+    expect(encryptSendConfirmPanel.classList.remove).not.toHaveBeenCalledWith('pgp-hidden');
+    expect(sendAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('encrypts but does not send on a host below Mailbox 1.15, and shows an explanatory status', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.hasAcknowledgedWarning = vi.fn(() => true);
+
+    const { statusEl } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => false;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    await runForceEncryptAndSend();
+
+    expect(pgpCore.encryptMessage).toHaveBeenCalled();
+    expect(sendAsync).not.toHaveBeenCalled();
+    expect(statusEl.textContent).toMatch(/doesn't support automatic sending/);
+  });
+
+  it('does not send when encryption itself fails', async () => {
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.hasAcknowledgedWarning = vi.fn(() => true);
+
+    installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockRejectedValue(new Error('boom'));
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    await runForceEncryptAndSend();
+
+    expect(sendAsync).not.toHaveBeenCalled();
+  });
+
+  it('force-disables the ordinary Encrypt button for the duration of the recipient-key wait, and restores it afterward', async () => {
+    // Regression: a manual click on btn-encrypt while runForceEncryptAndSend()
+    // is still inside waitForAllRecipientKeys() could race ahead of the
+    // forced flow's own handleEncrypt() call, causing that call to hit the
+    // "already encrypted" bailout and silently stop without ever sending.
+    vi.useFakeTimers();
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.hasAcknowledgedWarning = vi.fn(() => true);
+
+    const { encryptBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'slow@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const keyDiscovery = await import('../web/js/pgp/key-discovery.js');
+    keyDiscovery.resolveRecipients
+      .mockResolvedValueOnce([{ email: 'slow@example.com', key: null, status: 'not-found', source: null, armoredKey: null }])
+      .mockResolvedValueOnce([{ email: 'slow@example.com', key: { fake: 'recipient-key' }, status: 'found', source: 'keyring', armoredKey: null }]);
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+    pgpCore.encryptMessage.mockResolvedValue(
+      '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+    );
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    const runPromise = runForceEncryptAndSend();
+
+    // Flush the initial loadRecipients() poll (no key yet) -- btn-encrypt
+    // must already be forced disabled at this point, before any recipient
+    // has resolved, since the flag is set as the very first statement.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(encryptBtn.disabled).toBe(true);
+
+    // Advance past the 2s wait-loop retry, which now finds the key and lets
+    // the flow proceed into its own handleEncrypt()/sendAsync() call.
+    await vi.advanceTimersByTimeAsync(2500);
+    await runPromise;
+
+    expect(pgpCore.encryptMessage).toHaveBeenCalledTimes(1);
+    expect(sendAsync).toHaveBeenCalledTimes(1);
+    // The flag is cleared in the finally block and updateEncryptButton() is
+    // called once more -- with a resolved recipient and a key pair, the
+    // button should now reflect a normal ready state (re-enabled), not the
+    // forced-disabled state from during the wait.
+    expect(encryptBtn.disabled).toBe(false);
+
+    vi.useRealTimers();
+  });
+
+  it('disables the ordinary Encrypt button synchronously, before the confirmation panel or any await runs', async () => {
+    // Regression: setting the _forceEncryptSendActive flag alone doesn't
+    // repaint anything -- without an immediate updateEncryptButton() call,
+    // btn-encrypt stays in whatever state the initial pane-load
+    // loadRecipients() left it (typically enabled) through the confirmation
+    // panel's await and the hasKeyPair()/hasAcknowledgedWarning() checks,
+    // since nothing else calls updateEncryptButton() until
+    // waitForAllRecipientKeys()'s own loadRecipients() polls run.
+    const { encryptBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+
+    // Deliberately do NOT await -- a JS function runs synchronously up to
+    // its first await, so checking encryptBtn.disabled right here proves
+    // whether the disable happens before or only after some later await
+    // (e.g. inside the confirmation panel or the recipient-wait loop).
+    runForceEncryptAndSend();
+
+    expect(encryptBtn.disabled).toBe(true);
+  });
+
+  it('retries sending an already-encrypted message instead of stopping silently (e.g. after a previous send failure)', async () => {
+    // Regression: handleEncrypt() returns false both when it genuinely
+    // fails AND when the body is already PGP-armored (its own
+    // "already encrypted" bailout). Clicking Encrypt & Send again after,
+    // say, a prior successful encrypt whose own performSend() failed is
+    // almost certainly a request to retry the SEND, not to re-encrypt --
+    // this must not silently stop with only handleEncrypt()'s generic
+    // warning and no way to retry short of Outlook's own Send button.
+    const keyStorage = await import('../web/js/pgp/key-storage.js');
+    keyStorage.hasAcknowledgedWarning = vi.fn(() => true);
+
+    const { statusEl } = installStubs({
+      bodyText: '-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+    global.Office.context.requirements.isSetSupported = () => true;
+    const sendAsync = vi.fn((cb) => cb({ status: 'succeeded' }));
+    global.Office.context.mailbox.item.sendAsync = sendAsync;
+
+    const pgpCore = await import('../web/js/pgp/pgp-core.js');
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+    await runForceEncryptAndSend();
+
+    // handleEncrypt() bails at its own already-encrypted check without ever
+    // calling encryptMessage() -- proves this test exercises that bailout,
+    // not a genuine fresh encrypt.
+    expect(pgpCore.encryptMessage).not.toHaveBeenCalled();
+    expect(sendAsync).toHaveBeenCalledTimes(1);
+    expect(statusEl.textContent).toContain('already encrypted');
   });
 });

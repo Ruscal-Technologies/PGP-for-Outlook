@@ -28,7 +28,7 @@ YELLOW = ((251, 152,  59), (237, 135,  51), (248, 219, 143)) # second key in pai
 
 
 def draw_icon(size: int, lock_sa, lock_ol, lock_fill,
-              lock_open: bool = False) -> Image.Image:
+              lock_open: bool = False, badge: bool = False) -> Image.Image:
     """
     Draw the PGP Encrypt/Decrypt icon at `size` pixels square.
 
@@ -41,6 +41,7 @@ def draw_icon(size: int, lock_sa, lock_ol, lock_fill,
       * Padlock overlay (bottom-right quadrant)
         - Closed (green / blue): centred U-shackle, both legs in body
         - Open   (red):          shackle swung left, right leg only in body
+      * Optional send-arrow badge (top-right quadrant, `badge=True`)
     """
     SS = 4
     W = H = size * SS
@@ -155,6 +156,9 @@ def draw_icon(size: int, lock_sa, lock_ol, lock_fill,
                       kh_cx + kh_r, kh_cy + kh_r],
                      fill=rgba(lock_sa))
 
+    if badge:
+        _draw_send_badge(draw, p(64), p(14), p(14))
+
     return img.resize((size, size), Image.LANCZOS)
 
 
@@ -252,6 +256,22 @@ def _draw_crossed_keys(draw, cx, cy, key_len, colors1, colors2, stroke_w,
     _draw_key_shaft(draw, h1x, h1y, t1x, t1y, colors1, stroke_w, head_r)
     _draw_key_head(draw, h2x, h2y, colors2, head_r, stroke_w)
     _draw_key_head(draw, h1x, h1y, colors1, head_r, stroke_w)
+
+
+def _draw_send_badge(draw, cx, cy, radius):
+    """
+    Draw a small filled triangle (send arrow), pointing up-and-right,
+    centered at (cx, cy) with the given radius -- all in the same
+    supersampled pixel space the caller is already drawing in. White fill
+    with a dark outline so it reads clearly layered over the icon
+    underneath (e.g. the green Encrypt padlock, for IconEncryptSend).
+    """
+    angle = math.radians(-45)  # nose points up-and-right
+    points = []
+    for corner_deg in (0, 140, 220):
+        a = angle + math.radians(corner_deg)
+        points.append((cx + math.cos(a) * radius, cy + math.sin(a) * radius))
+    draw.polygon(points, fill=(255, 255, 255, 255), outline=(58, 58, 56, 255))
 
 
 # ── New main PGP icon (envelope + paper + padlock + crossed keys) ─────────────
@@ -442,6 +462,16 @@ def main():
             path = os.path.join(out_dir, f'{prefix}{sz}.png')
             img.save(path)
             print(f'  saved  {path}')
+
+    # Encrypt & Send – same green closed padlock as IconEncrypt, plus a
+    # white send-arrow badge in the top-right corner (single-click
+    # encrypt-and-send ribbon button).
+    es_sa, es_ol, es_fill = GREEN
+    for sz in [16, 32, 80]:
+        img  = draw_icon(sz, es_sa, es_ol, es_fill, lock_open=False, badge=True)
+        path = os.path.join(out_dir, f'IconEncryptSend{sz}.png')
+        img.save(path)
+        print(f'  saved  {path}')
 
     # Main PGP group icon (envelope + padlock + crossed keys)
     for sz in [16, 32, 64, 80, 128, 192]:

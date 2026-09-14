@@ -346,6 +346,17 @@ html, body {
   font-weight: 500;
 }
 
+.pgp-toggle input:disabled + .pgp-toggle__track {
+  background: #c8c6c4;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pgp-toggle input:disabled ~ .pgp-toggle__label {
+  color: #a19f9d;
+  cursor: not-allowed;
+}
+
 /* ── Status / alert boxes ─────────────────────────────────── */
 .pgp-alert {
   display: flex;

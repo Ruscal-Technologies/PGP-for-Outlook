@@ -230,11 +230,35 @@ async function applyReplyHandoff(text, isHtml) {
  * @param {object} opts
  * @param {boolean} opts.has110 - Mailbox 1.10 supported (getComposeTypeAsync)
  * @param {boolean} opts.has114 - Mailbox 1.14 supported (item.inReplyTo fallback)
+ * @param {boolean} [opts.requirePendingMarker] - When true, bail out
+ *   immediately (before any other check) unless the current body already
+ *   contains HANDOFF_PENDING_MARKER. Outlook has no supported way to
+ *   dynamically hide/show a ribbon button in any host, so
+ *   web/ReplyHandoffPane.js (opened by the always-visible "Insert Decrypted
+ *   Reply" button) passes this as true, turning what would otherwise be a
+ *   silent ~24s listen-then-timeout into an immediate, clear "nothing to
+ *   insert here" result. MessageCompose.js's own call (armed automatically
+ *   on every reply-compose-pane load, not tied to a button click) leaves
+ *   this false/omitted, preserving its existing silent-unless-needed behavior.
  * @param {(message: string, type: string) => void} [opts.onStatus] - Called
  *   for user-visible status, same points a caller's own showStatus() would be.
  * @param {(result: {success: boolean, message: string}) => void} [opts.onSettled]
  */
-export async function armReplyHandoffListener({ has110, has114, onStatus, onSettled } = {}) {
+export async function armReplyHandoffListener({ has110, has114, requirePendingMarker, onStatus, onSettled } = {}) {
+  if (requirePendingMarker) {
+    let bodyHtml;
+    try {
+      bodyHtml = await getBodyAsync(Office.CoercionType.Html);
+    } catch (e) {
+      if (onSettled) onSettled({ success: false, message: `Could not check this message for a pending decrypted reply: ${e.message}` });
+      return;
+    }
+    if (!bodyHtml.includes(HANDOFF_PENDING_MARKER)) {
+      if (onSettled) onSettled({ success: false, message: 'No pending decrypted reply to insert on this message.' });
+      return;
+    }
+  }
+
   if (typeof BroadcastChannel !== 'function') {
     if (onSettled) onSettled({ success: false, message: 'BroadcastChannel is not available in this window.' });
     return;

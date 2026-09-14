@@ -42,6 +42,7 @@ Office.onReady(async () => {
   await armReplyHandoffListener({
     has110,
     has114,
+    requirePendingMarker: true,
     onStatus: showStatus,
     onSettled: (result) => {
       if (result.success) {

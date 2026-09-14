@@ -45,7 +45,7 @@ import {
   base64ToUint8Array, uint8ArrayToBase64, stripPgpExtension,
   detectPgpContent,
 } from './js/pgp/pgp-core.js';
-import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault, getAutoEncryptDefault, getAutoSendDefault } from './js/pgp/key-storage.js';
+import { hasKeyPair, getPrivateKey, getPublicKey, getSignDefault, getAutoEncryptDefault, getAutoSendDefault, hasAcknowledgedWarning, saveAcknowledgedWarning } from './js/pgp/key-storage.js';
 import {
   cacheSessionKey, getSessionKey, clearSessionKey,
   getSessionEmail, getSessionShortId, onSessionCleared,
@@ -59,7 +59,7 @@ import {
   armReplyHandoffListener, stripPgpArmorBlock, pickSpliceMarker,
 } from './js/pgp/reply-handoff-runtime-core.js';
 
-export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleEncrypt, handleDecrypt, promptPassphrase as promptPassphraseForTest, maybeAutoEncrypt as maybeAutoEncryptForTest };
+export { stripPgpArmorBlock, pickSpliceMarker, refreshComposeButtons, handleEncrypt, handleDecrypt, promptPassphrase as promptPassphraseForTest, maybeAutoEncrypt as maybeAutoEncryptForTest, runForceEncryptAndSend };
 
 // ── Session status ────────────────────────────────────────────────────────────
 
@@ -151,6 +151,19 @@ let _autoEncryptFired = false;
  * @type {boolean}
  */
 let _encryptInFlight = false;
+
+/**
+ * True for the duration of runForceEncryptAndSend()'s wait-for-recipients
+ * phase and its own handleEncrypt() call. Forces btn-encrypt to stay
+ * disabled even when updateEncryptButton() would otherwise enable it
+ * (updateEncryptButton() is called repeatedly by loadRecipients(), which
+ * waitForAllRecipientKeys() polls internally) -- prevents a manual Encrypt
+ * click from racing ahead of the forced flow's own handleEncrypt() call,
+ * which would otherwise hit the already-encrypted bailout and cause
+ * Encrypt & Send to silently stop without ever sending.
+ * @type {boolean}
+ */
+let _forceEncryptSendActive = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -404,9 +417,10 @@ function updateEncryptButton() {
   const allHaveKeys = _recipientResults.length > 0 &&
     _recipientResults.every(r => !!r.key);
   const ready = allHaveKeys && hasKeyPair();
+  const disabled = !ready || _forceEncryptSendActive;
   const wasDisabled = el('btn-encrypt').disabled;
-  el('btn-encrypt').disabled = !ready;
-  if (ready && wasDisabled) el('btn-encrypt').focus(); // only on disabled→enabled transition
+  el('btn-encrypt').disabled = disabled;
+  if (!disabled && wasDisabled) el('btn-encrypt').focus(); // only on disabled→enabled transition
 }
 
 /**
@@ -695,49 +709,36 @@ export function mergePreservingManuallyResolvedKeys(freshResults, priorResults) 
 }
 
 /**
- * Fires once, right after the compose pane loads, if the user's
- * auto-encrypt preference is on. Calls loadRecipients() itself as its own
- * first step rather than assuming Office.onReady's own startup call already
- * populated _recipientResults — this makes the function self-contained and
- * directly callable in isolation (including from a test), at the cost of a
- * second, redundant recipient/key-resolution pass immediately after
- * Office.onReady's own startup one. This is the same accepted tradeoff
- * handleAutoEncrypt() below makes with loadAttachments()/
- * reconcileInlineAttachments() — a small, harmless duplication in exchange
- * for not having to reach into or depend on another function's completed
- * side effects.
+ * Waits/retries every 2 seconds, using loadRecipients() +
+ * mergePreservingManuallyResolvedKeys(), until every currently-listed
+ * recipient has a resolved key, or a pass makes no more progress than the
+ * previous one (see the original maybeAutoEncrypt() reasoning this was
+ * extracted from: no arbitrary invented timeout is needed, because
+ * loadRecipients() already fully awaits both Outlook's own recipient-
+ * resolution poll and the complete key-discovery chain before returning).
+ * Calls loadRecipients() itself as its first step. Shared by
+ * maybeAutoEncrypt() and the forced Encrypt & Send flow
+ * (runForceEncryptAndSend()) so both reuse the exact same wait logic.
  *
- * After that first load, waits/retries every 2 seconds as long as each pass
- * makes forward progress (a new recipient appears, or a previously-keyless
- * recipient now has one), and gives up the moment a pass produces the exact
- * same recipient/key-found snapshot as the previous pass. No arbitrary
- * invented timeout: because loadRecipients() fully awaits both Outlook's
- * recipient-resolution poll and the complete key-discovery chain before
- * returning, "no change since last pass" reliably means every
- * currently-listed recipient's lookup has already run to completion.
+ * @returns {Promise<boolean>} true once every currently-listed recipient has
+ *   a key. False if there are no recipients at all, or if a pass made no
+ *   progress over the previous one (gave up) — callers distinguish those two
+ *   cases themselves via _recipientResults.length, since they warrant
+ *   different status messages.
  */
-async function maybeAutoEncrypt() {
-  if (_autoEncryptFired || !getAutoEncryptDefault() || !hasKeyPair()) return;
-  _autoEncryptFired = true;
-
+async function waitForAllRecipientKeys() {
   await loadRecipients();
-  if (_recipientResults.length === 0) return; // nothing to encrypt to; leave as manual
+  if (_recipientResults.length === 0) return false;
 
   let previousSnapshot = null;
   while (true) {
-    if (_recipientResults.length > 0 && _recipientResults.every(r => !!r.key)) {
-      await handleAutoEncrypt();
-      return;
-    }
+    if (_recipientResults.length > 0 && _recipientResults.every(r => !!r.key)) return true;
 
     const snapshot = _recipientResults.map(r => `${r.email}:${!!r.key}`).join(',');
-    if (snapshot === previousSnapshot) {
-      showStatus("Auto-encrypt didn't complete — not all recipients have a resolved key.", 'warning');
-      return;
-    }
+    if (snapshot === previousSnapshot) return false;
     previousSnapshot = snapshot;
 
-    showStatus('Waiting for all recipients to resolve — auto-encrypt will run once ready…', 'info');
+    showStatus('Waiting for all recipients to resolve — encryption will run once ready…', 'info');
     await new Promise(r => setTimeout(r, 2000));
 
     // loadRecipients() unconditionally overwrites _recipientResults with a
@@ -752,6 +753,30 @@ async function maybeAutoEncrypt() {
     await loadRecipients();
     _recipientResults = mergePreservingManuallyResolvedKeys(_recipientResults, beforePoll);
   }
+}
+
+/**
+ * Fires once, right after the compose pane loads, if the user's
+ * auto-encrypt preference is on. See waitForAllRecipientKeys() for the full
+ * wait/retry/give-up behavior this delegates to.
+ */
+async function maybeAutoEncrypt() {
+  if (_autoEncryptFired || !getAutoEncryptDefault() || !hasKeyPair()) return;
+  _autoEncryptFired = true;
+
+  const ready = await waitForAllRecipientKeys();
+  if (!ready) {
+    // Only show the "didn't complete" notice when there WERE recipients to
+    // wait on -- an empty To/Cc list is "nothing to encrypt to; leave as
+    // manual", not a failure worth a warning (matches the pre-extraction
+    // behavior exactly).
+    if (_recipientResults.length > 0) {
+      showStatus("Auto-encrypt didn't complete — not all recipients have a resolved key.", 'warning');
+    }
+    return;
+  }
+
+  await handleAutoEncrypt();
 }
 
 /**
@@ -795,24 +820,162 @@ async function handleAutoEncrypt() {
 }
 
 /**
+ * Calls Office.context.mailbox.item.sendAsync() and shows an error status if
+ * it fails. Shows no status before or during sending, and none after a
+ * genuine success -- per Microsoft's own sendAsync docs, code meant to run
+ * after a successful send isn't guaranteed to execute (the add-in may
+ * already be torn down). Shared by maybeAutoSend() (gated on preferences)
+ * and the forced Encrypt & Send flow (runForceEncryptAndSend(), unconditional).
+ *
+ * @param {string} [actionLabel='Automatic send'] - Prefix used in the
+ *   failure status message, so an explicit user-initiated send (Encrypt &
+ *   Send) reads e.g. "Send failed: ..." rather than the misleading
+ *   "Automatic send failed: ..." that only fits the background auto-send path.
+ * @returns {Promise<void>}
+ */
+function performSend(actionLabel = 'Automatic send') {
+  return new Promise((resolve) => {
+    Office.context.mailbox.item.sendAsync((asyncResult) => {
+      if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+        showStatus(`${actionLabel} failed: ${asyncResult.error.message}`, 'error');
+      }
+      resolve();
+    });
+  });
+}
+
+/**
  * Fires automatically once handleAutoEncrypt() confirms a successful
  * encrypt. Only runs when this host supports Mailbox 1.15 (required by
  * sendAsync) and the user's auto-send preference is on — both re-checked
  * locally at call time, never trusted from a value cached at pane load,
  * since roaming settings sync across devices and a preference enabled on a
- * 1.15-capable host could be read back on one that isn't. No status message
- * is shown before or during sending, and none is relied upon after — per
- * Microsoft's own sendAsync docs, code meant to run on success isn't
- * guaranteed to execute once the item is sent.
+ * 1.15-capable host could be read back on one that isn't.
  */
 async function maybeAutoSend() {
   const has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
   if (!has115 || !getAutoSendDefault()) return;
-  Office.context.mailbox.item.sendAsync((asyncResult) => {
-    if (asyncResult.status === Office.AsyncResultStatus.Failed) {
-      showStatus(`Automatic send failed: ${asyncResult.error.message}`, 'error');
+  await performSend();
+}
+
+/**
+ * Show the inline "Encrypt and send this message now?" confirmation panel
+ * and resolve once the user picks Confirm (true) or Cancel (false). Uses the
+ * same inline-panel pattern as confirmAttachmentRemoval()/
+ * confirmInlineAttachments() rather than window.confirm(), which is blocked
+ * in sandboxed Office task-pane iframes.
+ */
+function confirmEncryptSend() {
+  return new Promise((resolve) => {
+    const panel = el('panel-encrypt-send-confirm');
+    panel.classList.remove('pgp-hidden');
+
+    function cleanup() {
+      panel.classList.add('pgp-hidden');
+      el('btn-encrypt-send-confirm').removeEventListener('click', onConfirm);
+      el('btn-encrypt-send-cancel').removeEventListener('click', onCancel);
     }
+    function onConfirm() { cleanup(); resolve(true); }
+    function onCancel()  { cleanup(); resolve(false); }
+
+    el('btn-encrypt-send-confirm').addEventListener('click', onConfirm);
+    el('btn-encrypt-send-cancel').addEventListener('click', onCancel);
   });
+}
+
+/**
+ * Entry point for the "Encrypt & Send" ribbon button
+ * (MessageCompose.html?mode=encryptSend, see Office.onReady below). Always
+ * encrypts and sends, regardless of the user's stored auto-encrypt/auto-send
+ * preferences:
+ *
+ *  1. Shows the one-time confirmation panel, unless already acknowledged
+ *     (pgp_acknowledged_warnings, see key-storage.js) — confirming it once
+ *     persists that acknowledgment so it never shows again until the user
+ *     resets it via Manage PGP's "Reset All Warnings" button.
+ *  2. Waits for every recipient to have a resolved key, reusing the exact
+ *     same wait/retry/give-up loop as auto-encrypt (waitForAllRecipientKeys()).
+ *  3. Calls handleEncrypt() DIRECTLY — not through handleAutoEncrypt()'s
+ *     pre-check-and-abort wrapper — so its normal interactive prompts
+ *     (the inline-attachment Convert/Continue/Cancel choice, and the
+ *     attachment-removal confirmation on Mailbox <1.8) show normally and the
+ *     flow continues after the user resolves them. This is a deliberate,
+ *     explicit click, unlike the silent background auto-encrypt trigger, so
+ *     prompting is expected here rather than surprising.
+ *  4. Sends unconditionally on a genuine encrypt success, but only if this
+ *     host supports Mailbox 1.15 (required by sendAsync) — checked live,
+ *     same as maybeAutoSend(). On an older host it shows a status explaining
+ *     that automatic sending isn't available and stops there, leaving the
+ *     now-encrypted message for the user to send manually.
+ */
+async function runForceEncryptAndSend() {
+  _forceEncryptSendActive = true;
+  // Repaint immediately -- otherwise btn-encrypt stays in whatever state the
+  // initial loadRecipients() left it (commonly enabled) through the
+  // confirmation panel's await and the hasKeyPair()/hasAcknowledgedWarning()
+  // checks below, since nothing else calls updateEncryptButton() until
+  // waitForAllRecipientKeys()'s own loadRecipients() polls run. A manual
+  // Encrypt click in that window can encrypt first, making this function's
+  // own later handleEncrypt() call hit the already-encrypted bailout and
+  // silently never send.
+  updateEncryptButton();
+  try {
+    if (!hasKeyPair()) {
+      showStatus("You don't have a PGP key pair — open Manage PGP to generate one.", 'error');
+      return;
+    }
+
+    if (!hasAcknowledgedWarning('encryptSendConfirm')) {
+      const confirmed = await confirmEncryptSend();
+      if (!confirmed) return;
+      try {
+        await saveAcknowledgedWarning('encryptSendConfirm');
+      } catch (e) {
+        showStatus(`Could not save your confirmation: ${e.message}`, 'error');
+        return;
+      }
+    }
+
+    const ready = await waitForAllRecipientKeys();
+    if (!ready) {
+      // Disambiguate "gave up waiting" from "there was nothing to wait on" —
+      // matches maybeAutoEncrypt()'s use of _recipientResults.length for the
+      // same distinction.
+      if (_recipientResults.length > 0) {
+        showStatus("Encrypt & Send didn't complete — not all recipients have a resolved key.", 'warning');
+      } else {
+        showStatus('No recipients to send to.', 'warning');
+      }
+      return;
+    }
+
+    const encrypted = await handleEncrypt();
+    if (!encrypted) {
+      // handleEncrypt() also returns false when the body is ALREADY
+      // PGP-armored (e.g. a previous Encrypt & Send attempt encrypted
+      // successfully but its own performSend() then failed, or the user
+      // separately clicked the ordinary Encrypt button first). In that
+      // case, clicking "Encrypt & Send" again is almost certainly a retry
+      // of the SEND, not a request to re-encrypt -- fall through to
+      // sending the already-armored body instead of stopping with only
+      // handleEncrypt()'s generic "already encrypted" warning and no way
+      // to retry short of using Outlook's own Send button.
+      const bodyText = await getBodyAsync(Office.CoercionType.Text).catch(() => '');
+      if (detectPgpContent(bodyText) !== 'encrypted') return;
+      showStatus('Message was already encrypted — sending now.', 'info');
+    }
+
+    const has115 = Office.context.requirements.isSetSupported('Mailbox', '1.15');
+    if (!has115) {
+      showStatus("✓ Message encrypted. This version of Outlook doesn't support automatic sending — click Send yourself.", 'warning');
+      return;
+    }
+
+    await performSend('Send');
+  } finally {
+    _forceEncryptSendActive = false;
+    updateEncryptButton();
+  }
 }
 
 async function handleDecrypt() {
@@ -1359,10 +1522,25 @@ Office.onReady(async () => {
   // The user can flip the toggle for any individual message.
   el('sign-toggle').checked = getSignDefault();
 
-  // Fire-and-forget: inert unless the auto-encrypt preference is on and all
-  // recipients already have (or come to have) a resolved key. See its own
-  // docblock for the full wait/retry/abort behavior.
-  maybeAutoEncrypt().catch((e) => console.error('Auto-encrypt failed', e));
+  // The "Encrypt & Send" ribbon button opens this same pane with
+  // ?mode=encryptSend (see manifest.xml's messageComposeEncryptSendTaskPaneUrl)
+  // instead of a separate task pane -- Outlook has no shared runtime, so a
+  // UI-less ribbon function command can't reach into this pane's DOM or show
+  // the passphrase modal; reusing this pane is the only way to get both.
+  const forceEncryptSendMode =
+    typeof window !== 'undefined' && window.location &&
+    new URLSearchParams(window.location.search).get('mode') === 'encryptSend';
+
+  if (forceEncryptSendMode) {
+    // Deliberately NOT gated on the auto-encrypt/auto-send preferences --
+    // this button always runs the cascade regardless of what's stored.
+    runForceEncryptAndSend().catch((e) => console.error('Encrypt & Send failed', e));
+  } else {
+    // Fire-and-forget: inert unless the auto-encrypt preference is on and all
+    // recipients already have (or come to have) a resolved key. See its own
+    // docblock for the full wait/retry/abort behavior.
+    maybeAutoEncrypt().catch((e) => console.error('Auto-encrypt failed', e));
+  }
 
   // Reflect initial session cache state (user may have just come from KeyManagement)
   updateSessionStatus();

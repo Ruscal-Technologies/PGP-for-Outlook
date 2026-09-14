@@ -27,6 +27,27 @@
     You don't have a PGP key pair. Open <strong>Manage PGP</strong> to generate one before encrypting messages.
   </div>
 
+  <!-- ── Encrypt & Send confirmation ─────────────────────
+       Shown only when this pane was opened via the "Encrypt & Send" ribbon
+       button (MessageCompose.html?mode=encryptSend) and the user hasn't
+       already acknowledged it once (see key-storage.js's
+       pgp_acknowledged_warnings bucket and Manage PGP's "Reset All
+       Warnings" button). ──────────────────────────────── -->
+  <div id="panel-encrypt-send-confirm" class="pgp-hidden"
+       style="margin:0 0 12px;padding:10px;background:#fff4ce;border:1px solid #ffb900;border-radius:4px;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Encrypt and send this message now?</div>
+    <p style="font-size:12px;color:#3b3a39;margin:0 0 10px;">
+      This cannot be undone once sending starts. You won't be asked again
+      unless you reset warnings in Manage PGP. On older versions of Outlook
+      that don't support automatic sending, this only encrypts the message —
+      you'll still need to click Send yourself.
+    </p>
+    <div class="pgp-row" style="gap:8px;">
+      <button class="pgp-btn pgp-btn--primary pgp-btn--sm" id="btn-encrypt-send-confirm">Encrypt &amp; Send</button>
+      <button class="pgp-btn pgp-btn--secondary pgp-btn--sm" id="btn-encrypt-send-cancel">Cancel</button>
+    </div>
+  </div>
+
   <!-- ═══════════════════════════════════════════════════════
        ENCRYPT / DECRYPT BUTTON
   ══════════════════════════════════════════════════════════ -->
