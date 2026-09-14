@@ -910,6 +910,15 @@ function confirmEncryptSend() {
  */
 async function runForceEncryptAndSend() {
   _forceEncryptSendActive = true;
+  // Repaint immediately -- otherwise btn-encrypt stays in whatever state the
+  // initial loadRecipients() left it (commonly enabled) through the
+  // confirmation panel's await and the hasKeyPair()/hasAcknowledgedWarning()
+  // checks below, since nothing else calls updateEncryptButton() until
+  // waitForAllRecipientKeys()'s own loadRecipients() polls run. A manual
+  // Encrypt click in that window can encrypt first, making this function's
+  // own later handleEncrypt() call hit the already-encrypted bailout and
+  // silently never send.
+  updateEncryptButton();
   try {
     if (!hasKeyPair()) {
       showStatus("You don't have a PGP key pair — open Manage PGP to generate one.", 'error');

@@ -1132,4 +1132,28 @@ describe('runForceEncryptAndSend', () => {
 
     vi.useRealTimers();
   });
+
+  it('disables the ordinary Encrypt button synchronously, before the confirmation panel or any await runs', async () => {
+    // Regression: setting the _forceEncryptSendActive flag alone doesn't
+    // repaint anything -- without an immediate updateEncryptButton() call,
+    // btn-encrypt stays in whatever state the initial pane-load
+    // loadRecipients() left it (typically enabled) through the confirmation
+    // panel's await and the hasKeyPair()/hasAcknowledgedWarning() checks,
+    // since nothing else calls updateEncryptButton() until
+    // waitForAllRecipientKeys()'s own loadRecipients() polls run.
+    const { encryptBtn } = installStubs({
+      bodyText: '<p>hello</p>',
+      recipients: [{ emailAddress: 'friend@example.com' }],
+    });
+
+    const { runForceEncryptAndSend } = await import('../web/MessageCompose.js');
+
+    // Deliberately do NOT await -- a JS function runs synchronously up to
+    // its first await, so checking encryptBtn.disabled right here proves
+    // whether the disable happens before or only after some later await
+    // (e.g. inside the confirmation panel or the recipient-wait loop).
+    runForceEncryptAndSend();
+
+    expect(encryptBtn.disabled).toBe(true);
+  });
 });
